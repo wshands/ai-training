@@ -1,0 +1,122 @@
+services:
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+
+    # Make Kafka reachable from Minikube pods
+    extra_hosts:
+      - "host.minikube.internal:host-gateway"
+
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+
+      # Kafka binds (listens) on port 9092 + controller port
+      KAFKA_LISTENERS: >
+        PLAINTEXT_HOST://0.0.0.0:9092,
+        PLAINTEXT_K8S://0.0.0.0:19092,
+        CONTROLLER://127.0.0.1:9093
+
+      # These are the ADDRESSES clients see
+      KAFKA_ADVERTISED_LISTENERS: >
+        PLAINTEXT_HOST://kafka:9092,
+        PLAINTEXT_K8S://host.minikube.internal:19092
+
+      # Map listener names to protocols
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >
+        PLAINTEXT_HOST:PLAINTEXT,
+        PLAINTEXT_K8S:PLAINTEXT,
+        CONTROLLER:PLAINTEXT
+
+      # KRaft controller listener name
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      # Also update the controller’s quorum voters to use 0.0.0.0
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@127.0.0.1:9093"
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT_HOST"
+
+      # MUST be a UUID
+      CLUSTER_ID: "23b7ef2d-85f1-47d8-89b1-51e37732f4e0"
+
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+
+      # Single-node required settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: controlplane
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  control-plane:
+    build: ./control-plane
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092   # FIXED
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  event-processor:
+    build: ./event-processor
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092   # FIXED
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  job-launcher:
+    build: ./job-launcher
+    extra_hosts:
+      - "host.minikube.internal:host-gateway"
+    environment:
+      # Connect Minikube → Kafka on macOS
+      KAFKA_BOOTSTRAP: host.minikube.internal:19092
+
+      # DO NOT load kubeconfig inside cluster
+      # Job-launcher Deployment in Minikube will load in-cluster config
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  kafka-data: {}
+  pg-data: {}

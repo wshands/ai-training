@@ -1,0 +1,48 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Login to DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: Build and push control-plane
+      uses: docker/build-push-action@v5
+      with:
+        context: ./control-plane
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-control-plane:latest
+    - name: Build and push job-launcher
+      uses: docker/build-push-action@v5
+      with:
+        context: ./job-launcher
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-job-launcher:latest
+    - name: Build and push event-processor
+      uses: docker/build-push-action@v5
+      with:
+        context: ./event-processor
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-event-processor:latest
+    - name: Build and push training-job
+      uses: docker/build-push-action@v5
+      with:
+        context: ./training-job
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-training-job:latest
+    - name: Build and push ui-dashboard
+      uses: docker/build-push-action@v5
+      with:
+        context: ./ui-dashboard
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-ui-dashboard:latest

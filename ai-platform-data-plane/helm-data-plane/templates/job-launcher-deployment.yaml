@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-launcher
+  #namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.jobLauncher.replicas }}
+  selector:
+    matchLabels:
+      app: job-launcher
+  template:
+    metadata:
+      labels:
+        app: job-launcher
+    spec:
+      serviceAccountName: job-launcher
+      containers:
+        - name: job-launcher
+          image: "{{ .Values.jobLauncher.image.repository }}:{{ .Values.jobLauncher.image.tag }}"
+          imagePullPolicy: {{ .Values.jobLauncher.image.pullPolicy }}
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: "{{ .Values.jobLauncher.kafkaBootstrap }}"
+            - name: JOB_EVENTS_TOPIC
+              value: "{{ .Values.jobLauncher.jobEventsTopic }}"
+            - name: TRAINING_NAMESPACE
+              value: "{{ .Values.jobLauncher.trainingNamespace }}"

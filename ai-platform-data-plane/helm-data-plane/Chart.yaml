@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ai-platform-data-plane
+description: Data-plane (job-launcher + optional Kafka) for the AI platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

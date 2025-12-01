@@ -1,0 +1,16 @@
+controlPlane:
+  image: ai-platform/control-plane:latest
+  replicas: 2
+jobLauncher:
+  image: ai-platform/job-launcher:latest
+  replicas: 1
+eventProcessor:
+  image: ai-platform/event-processor:latest
+  replicas: 1
+ui:
+  image: ai-platform/ui-dashboard:latest
+  replicas: 1
+kafka:
+  bootstrap: kafka:9092
+postgres:
+  dsn: postgresql://postgres:postgres@postgres:5432/controlplane
