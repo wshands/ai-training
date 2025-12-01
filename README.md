@@ -44,3 +44,16 @@ docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "S
 docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_events;"
 docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_state;"
 ```
+
+To submit a training request manually:
+```bash
+curl -X POST http://localhost:8000/jobs/train \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "foo",
+    "dataset_id": "bar",
+    "epochs": 5,
+    "batch_size": 8,
+    "lr": 0.01
+  }'
+```
