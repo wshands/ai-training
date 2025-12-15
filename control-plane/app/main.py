@@ -65,6 +65,7 @@ async def submit_training_job(req: TrainJobRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
 
+    """
     try:
         batch_api, core_api = load_k8s_clients()
         cm = client.V1ConfigMap(
@@ -99,5 +100,5 @@ async def submit_training_job(req: TrainJobRequest):
         batch_api.create_namespaced_job(namespace=TRAINING_NAMESPACE, body=job)
     except Exception as e:
         print("K8s direct job submit failed:", e, flush=True)
-
+    """
     return {"job_id": job_id, "status": "SUBMITTED"}

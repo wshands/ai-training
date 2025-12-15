@@ -14,6 +14,12 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - .github/workflows/ – CI workflow to build/push Docker images
 
 
+To start the cluster:
+```bash
+ minikube start
+```
+
+
 To run the full stack locally with Docker Compose:
 ```bash
 docker-compose up
@@ -56,4 +62,14 @@ curl -X POST http://localhost:8000/jobs/train \
     "batch_size": 8,
     "lr": 0.01
   }'
+```
+
+To temporarily stop the cluster but keep data:
+```bash
+ minikube stop 
+```
+
+To bring down the cluster and delete all data:
+```bash
+ minikube delete
 ```

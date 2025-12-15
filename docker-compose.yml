@@ -100,22 +100,25 @@ services:
       postgres:
         condition: service_healthy
 
-  job-launcher:
-    build: ./job-launcher
-    extra_hosts:
-      - "host.minikube.internal:host-gateway"
-    environment:
-      # Connect Minikube → Kafka on macOS
-      KAFKA_BOOTSTRAP: host.minikube.internal:19092
+  # JOB LAUNCHER is not run inside Docker Compose for Minikube setup
+  # It is built and deployed as a Kubernetes Deployment in Minikube
 
-      # DO NOT load kubeconfig inside cluster
-      # Job-launcher Deployment in Minikube will load in-cluster config
+  #job-launcher:
+  #  build: ./job-launcher
+  #  extra_hosts:
+  #    - "host.minikube.internal:host-gateway"
+  #  environment:
+  #    # Connect Minikube → Kafka on macOS
+  #    KAFKA_BOOTSTRAP: host.minikube.internal:19092
+  #
+  #    # DO NOT load kubeconfig inside cluster
+  #    # Job-launcher Deployment in Minikube will load in-cluster config
 
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
+  #  depends_on:
+  #    kafka:
+  #      condition: service_healthy
+  #    postgres:
+  #      condition: service_healthy
 
 volumes:
   kafka-data: {}
