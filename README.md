@@ -51,6 +51,11 @@ docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "S
 docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_state;"
 ```
 
+To watch Kafka queue:
+```bash
+ docker exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh  --bootstrap-server kafka:9092 --topic job-events --from-beginning
+```
+
 To submit a training request manually:
 ```bash
 curl -X POST http://localhost:8000/jobs/train \

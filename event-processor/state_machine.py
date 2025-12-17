@@ -1,5 +1,5 @@
 from enum import Enum
-
+"""
 class JobState(Enum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
@@ -7,6 +7,18 @@ class JobState(Enum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+"""
+
+class JobState(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    PREEMPTED = "PREEMPTED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    UNKNOWN = "UNKNOWN"
+
+
 
 TRANSITIONS = {
     JobState.PENDING: {"JOB_STARTED": JobState.RUNNING, "JOB_FAILED": JobState.FAILED, "JOB_CANCELLED": JobState.CANCELLED},

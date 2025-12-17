@@ -1,7 +1,18 @@
+from enum import Enum
+
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from kubernetes import client, config as k8s_config
-import uuid, time, json
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.websockets import WebSocket, WebSocketDisconnect
+
+from fastapi import WebSocket
+
+
+
+
+import uuid, time, json, asyncio
+
 
 from .config import (
     TRAINING_NAMESPACE,
@@ -9,9 +20,77 @@ from .config import (
     CUSTOMER_KUBECONFIG,
 )
 from .kafka_bus import init_kafka, send_event
-from .db import init_db, persist_initial_job
+from .db import (
+    init_db,
+    persist_initial_job,
+    fetch_jobs,
+    fetch_job,
+    fetch_job_events_since,
+)
+# plus the models you defined above:
+# JobState, TrainJobRequest, JobSummary, JobDetail, JobEvent, DeploymentSummary
+
+
+
+from pydantic import BaseModel, Field
+
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+
+from kubernetes import client, config as k8s_config
+
+
+
+
+class JobState(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    PREEMPTED = "PREEMPTED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    UNKNOWN = "UNKNOWN"
+
+
+class JobSummary(BaseModel):
+    job_id: str
+    status: JobState = JobState.UNKNOWN
+    created_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class JobEvent(BaseModel):
+    id: int
+    job_id: str
+    event_time: Optional[datetime] = None
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobDetail(JobSummary):
+    events: List[JobEvent] = Field(default_factory=list)
 
 app = FastAPI(title="AI Platform Control Plane")
+
+# Configure CORS
+origins = [
+    "http://localhost",        # Allow requests from localhost without a port (default port 80)
+    "http://localhost:3000",   # Your frontend application's origin
+    # Add any other origins where your frontend might be hosted, e.g.,
+    # "https://your-frontend-domain.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # tighten for prod
+    #allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class TrainJobRequest(BaseModel):
     model_id: str
@@ -65,40 +144,69 @@ async def submit_training_job(req: TrainJobRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
 
-    """
-    try:
-        batch_api, core_api = load_k8s_clients()
-        cm = client.V1ConfigMap(
-            metadata=client.V1ObjectMeta(name=config_map_name),
-            data={"config.json": json.dumps(job_cfg)},
-        )
-        core_api.create_namespaced_config_map(namespace=TRAINING_NAMESPACE, body=cm)
-        container = client.V1Container(
-            name="trainer",
-            image=TRAINING_IMAGE,
-            volume_mounts=[
-                client.V1VolumeMount(name="job-config", mount_path="/opt/job")
-            ],
-        )
-        volume = client.V1Volume(
-            name="job-config",
-            config_map=client.V1ConfigMapVolumeSource(name=config_map_name),
-        )
-        pod_spec = client.V1PodSpec(
-            restart_policy="Never", containers=[container], volumes=[volume]
-        )
-        template = client.V1PodTemplateSpec(
-            metadata=client.V1ObjectMeta(labels={"job-id": job_id}), spec=pod_spec
-        )
-        job_spec = client.V1JobSpec(template=template, backoff_limit=3)
-        job = client.V1Job(
-            api_version="batch/v1",
-            kind="Job",
-            metadata=client.V1ObjectMeta(name=job_name),
-            spec=job_spec,
-        )
-        batch_api.create_namespaced_job(namespace=TRAINING_NAMESPACE, body=job)
-    except Exception as e:
-        print("K8s direct job submit failed:", e, flush=True)
-    """
     return {"job_id": job_id, "status": "SUBMITTED"}
+
+
+@app.get("/jobs", response_model=List[JobSummary])
+async def list_jobs(limit: int = 100):
+    rows = await fetch_jobs(limit=limit)
+    summaries: List[JobSummary] = []
+    for r in rows:
+        summaries.append(
+            JobSummary(
+                job_id=r["job_id"],
+                status=(r["status"] or "UNKNOWN"),
+                created_at=r["created_at"],
+                submitted_at=r.get("submitted_at"),
+                updated_at=r.get("updated_at"),
+                config=r["config"] or {},
+            )
+        )
+    return summaries
+
+
+
+@app.websocket("/ws/jobs/{job_id}")
+async def job_event_stream(websocket: WebSocket, job_id: str):
+    await websocket.accept()
+    last_id = 0
+    try:
+        while True:
+            events = await fetch_job_events_since(job_id, last_id=last_id, limit=200)
+            for e in events:
+                last_id = e["id"]
+                payload = e["payload"] or {}
+                event_type = e["event_type"] or payload.get("event_type", "UNKNOWN")
+
+                # Map raw events into frontend-friendly messages.
+                #
+                # You can shape this however you like, but one common mapping is:
+                # - JOB_LOG        -> {type: "log", message: "..."}
+                # - JOB_METRIC     -> {type: "metric", metric: {...}}
+                # - JOB_* state    -> {type: "status", status: "RUNNING"/...}
+                msg: dict[str, Any]
+
+                if event_type == "JOB_LOG":
+                    msg = {"type": "log", "message": payload.get("message", "")}
+                elif event_type == "JOB_METRIC":
+                    msg = {"type": "metric", "metric": payload.get("metric", {})}
+                elif event_type.startswith("JOB_"):
+                    # derive state using the same enum as event-processor.state_machine
+                    msg = {"type": "status", "status": payload.get("state", event_type)}
+                else:
+                    msg = {
+                        "type": "raw_event",
+                        "event_type": event_type,
+                        "payload": payload,
+                    }
+
+                await websocket.send_json(msg)
+
+            await asyncio.sleep(1.0)
+    except WebSocketDisconnect:
+        # client closed
+        return
+    except Exception as e:
+        # log and close
+        print("Error in job_event_stream:", e, flush=True)
+        await websocket.close(code=1011)
