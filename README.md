@@ -69,6 +69,13 @@ curl -X POST http://localhost:8000/jobs/train \
   }'
 ```
 
+To start UI:
+```bash
+ cd frontend_full
+ npm install
+ npm start
+```
+
 To temporarily stop the cluster but keep data:
 ```bash
  minikube stop 
