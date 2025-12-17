@@ -22,7 +22,7 @@ To start the cluster:
 
 To run the full stack locally with Docker Compose:
 ```bash
-docker-compose up
+docker-compose up  --build --force-recreate
 # remove the unused job-launcher container in the local mac since it will be run in minikube
 ```
 To bring down the local services:
