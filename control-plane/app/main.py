@@ -43,6 +43,7 @@ from kubernetes import client, config as k8s_config
 
 
 class JobState(str, Enum):
+    SUBMITTED = "SUBMITTED"
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     PREEMPTED = "PREEMPTED"
@@ -159,7 +160,8 @@ async def list_jobs(limit: int = 100):
                 created_at=r["created_at"],
                 submitted_at=r.get("submitted_at"),
                 updated_at=r.get("updated_at"),
-                config=r["config"] or {},
+                #config=r["config"] or {},
+                config = json.loads(r["config"]) if isinstance(r["config"], str) else (r["config"] or {}),
             )
         )
     return summaries

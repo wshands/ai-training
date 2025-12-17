@@ -17,6 +17,7 @@ async def init_db():
                 job_id TEXT PRIMARY KEY,
                 created_at TIMESTAMP DEFAULT now(),
                 submitted_at TIMESTAMP,
+                updated_at TIMESTAMP,
                 config JSONB NOT NULL,
                 status TEXT DEFAULT 'SUBMITTED'
             );
