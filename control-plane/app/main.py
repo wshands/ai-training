@@ -40,7 +40,10 @@ from datetime import datetime
 from kubernetes import client, config as k8s_config
 
 
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class JobState(str, Enum):
     SUBMITTED = "SUBMITTED"
@@ -51,6 +54,7 @@ class JobState(str, Enum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     UNKNOWN = "UNKNOWN"
+    COMPLETED = "COMPLETED"
 
 
 class JobSummary(BaseModel):
@@ -60,7 +64,8 @@ class JobSummary(BaseModel):
     submitted_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     config: Dict[str, Any] = Field(default_factory=dict)
-
+    model_id: Optional[str] = None
+    dataset_id: Optional[str] = None
 
 class JobEvent(BaseModel):
     id: int
@@ -168,6 +173,84 @@ async def list_jobs(limit: int = 100):
 
 
 
+@app.get("/jobs/{job_id}", response_model=JobSummary)
+async def get_job(job_id: str) -> JobSummary:
+    # Fetch all events for this job (or up to a sane limit)
+    events = await fetch_job_events_since(job_id=job_id, last_id=0, limit=5000)
+
+    if not events:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Initialize derived fields
+    created_at: datetime = events[0]["event_time"]
+    submitted_at: datetime | None = None
+    updated_at: datetime | None = events[-1]["event_time"] if events else None
+
+    status: str = "UNKNOWN"
+    config: dict[str, Any] = {}
+    model_id: str | None = None
+    dataset_id: str | None = None
+
+    # Walk events in order and derive state
+    for ev in events:
+        payload = ev["payload"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+
+        # event_type comes from your SQL:
+        #   COALESCE(payload->>'event_type', payload->>'type') AS event_type
+        event_type = (
+            ev.get("event_type")
+            or payload.get("event_type")
+            or payload.get("type")
+            or "UNKNOWN"
+        )
+
+        ts: datetime = ev["event_time"]
+
+        if event_type == "JOB_SUBMITTED":
+            if submitted_at is None:
+                submitted_at = ts
+
+            # Config is stored in payload["config"] for JOB_SUBMITTED
+            cfg = payload.get("config") or {}
+            # Merge into config (later events could override if you want)
+            config = {**config, **cfg}
+            model_id = config.get("model_id", model_id)
+            dataset_id = config.get("dataset_id", dataset_id)
+
+            # Reasonable default status if nothing else comes later
+            status = "SUBMITTED"
+
+        elif event_type in ("JOB_STARTED", "JOB_RUNNING"):
+            status = "RUNNING"
+
+        elif event_type == "JOB_COMPLETED":
+            status = "COMPLETED"
+
+        elif event_type == "JOB_FAILED":
+            status = "FAILED"
+
+        # If you want EPOCH_METRIC etc. to affect status, handle here
+        # elif event_type == "EPOCH_METRIC":
+        #     pass
+
+    # Fall back if submitted_at was never set
+    if submitted_at is None:
+        submitted_at = created_at
+
+    return JobSummary(
+        job_id=job_id,
+        status=status,
+        created_at=created_at,
+        submitted_at=submitted_at,
+        updated_at=updated_at,
+        config=config,
+        model_id=model_id,
+        dataset_id=dataset_id,
+    )
+
+
 @app.websocket("/ws/jobs/{job_id}")
 async def job_event_stream(websocket: WebSocket, job_id: str):
     await websocket.accept()
@@ -176,9 +259,11 @@ async def job_event_stream(websocket: WebSocket, job_id: str):
         while True:
             events = await fetch_job_events_since(job_id, last_id=last_id, limit=200)
             for e in events:
+                logger.info("job_event_stream ev type=%s value=%r", type(e), e)
+
                 last_id = e["id"]
-                payload = e["payload"] or {}
-                event_type = e["event_type"] or payload.get("event_type", "UNKNOWN")
+                payload = json.loads(e["payload"]) if isinstance(e["payload"], str) else (e["payload"] or {})
+                event_type = e["event_type"] or payload.get("event_type") or payload.get("type") or "UNKNOWN"
 
                 # Map raw events into frontend-friendly messages.
                 #
@@ -190,8 +275,9 @@ async def job_event_stream(websocket: WebSocket, job_id: str):
 
                 if event_type == "JOB_LOG":
                     msg = {"type": "log", "message": payload.get("message", "")}
-                elif event_type == "JOB_METRIC":
-                    msg = {"type": "metric", "metric": payload.get("metric", {})}
+                elif event_type in ("JOB_METRIC", "EPOCH_METRIC"):
+                    msg = {"type": "metric", "metric": payload}
+                    #msg = {"type": "metric", "metric": payload.get("metric", {})}
                 elif event_type.startswith("JOB_"):
                     # derive state using the same enum as event-processor.state_machine
                     msg = {"type": "status", "status": payload.get("state", event_type)}
@@ -202,6 +288,7 @@ async def job_event_stream(websocket: WebSocket, job_id: str):
                         "payload": payload,
                     }
 
+                logger.info("job_event_stream msg type=%s value=%r", type(msg), msg)
                 await websocket.send_json(msg)
 
             await asyncio.sleep(1.0)

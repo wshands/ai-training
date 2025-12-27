@@ -70,15 +70,18 @@ async def run_job():
     jid = cfg.get("job_id", f"job-{int(time.time())}")
 
     await emit("JOB_STARTED", jid)
-
+    
     model = build_model()
+    await emit("JOB_LOG", jid, message="Building synthetic dataset")
     loader = build_data(cfg.get("batch_size",32))
     opt = torch.optim.Adam(model.parameters(), lr=cfg.get("lr",1e-3))
     epochs = cfg.get("epochs",1)
 
+    await emit("JOB_LOG", jid, message="Training started")
     try:
         for e in range(epochs):
             if terminate:
+                await emit("JOB_LOG", jid, message="Preempting job")
                 await emit("JOB_PREEMPTED", jid, epoch=e)
                 return 0
 
@@ -93,13 +96,16 @@ async def run_job():
 
             avg = total / len(loader)
             await emit("EPOCH_METRIC", jid, epoch=e, loss=avg)
+            await emit("JOB_LOG", jid, message=f"Epoch {e+1}/{epochs} completed, loss={avg:.4f}")
             await asyncio.sleep(0.1)
 
     except Exception as ex:
         await emit("JOB_FAILED", jid, error=str(ex))
+        await emit("JOB_LOG", jid, message=f"Job failed: {ex}")
         return 1
 
     await emit("JOB_COMPLETED", jid)
+    await emit("JOB_LOG", jid, message="Training completed successfully")
     return 0
 
 

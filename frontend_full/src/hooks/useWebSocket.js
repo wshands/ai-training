@@ -6,6 +6,21 @@ export const useWebSocket = (url, onMessage, options = {}) => {
   const wsRef = useRef(null);
   const retryCountRef = useRef(0);
 
+  // ❗ Problem: onMessage is a dependency of useEffect below.
+  // That inline (msg) => { ... } is a brand-new function on every render, so onMessage in the dependency array is always “changed”. React then:
+  // Runs the cleanup → closes existing WebSocket.
+  // Runs the effect again → opens a new WebSocket.
+  // This causes an infinite loop of disconnects/reconnects.
+  //
+  // Solution: use a ref to hold the latest onMessage handler, and refer to that ref inside the effect. 
+  // This way, the effect does not depend on onMessage, and won't re-run when onMessage changes.
+  const onMessageRef = useRef(onMessage);           // ⭐ NEW
+
+  // Keep latest onMessage in a ref
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);                                  // ⭐ NEW
+
   useEffect(() => {
     if (!url) return;
     let cancelled = false;
@@ -23,10 +38,11 @@ export const useWebSocket = (url, onMessage, options = {}) => {
       };
 
       ws.onmessage = (event) => {
-        if (!onMessage) return;
+        const handler = onMessageRef.current;       // ⭐ use ref
+        if (!handler) return;
         try {
           const data = JSON.parse(event.data);
-          onMessage(data);
+          handler(data);
         } catch (e) {
           console.warn('WS message parse error', e);
         }
@@ -56,7 +72,8 @@ export const useWebSocket = (url, onMessage, options = {}) => {
         wsRef.current.close();
       }
     };
-  }, [url, onMessage, reconnectInterval, maxReconnectAttempts]);
+  }, [url, reconnectInterval, maxReconnectAttempts]);  // ❗ removed onMessage
 
   return { status, ws: wsRef.current };
 };
+

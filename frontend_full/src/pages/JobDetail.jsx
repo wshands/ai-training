@@ -24,6 +24,12 @@ const JobDetail = () => {
   const [logs, setLogs] = useState([]);
   const [metrics, setMetrics] = useState([]);
 
+
+  //  This ensures:
+  // loading starts true
+  // After the HTTP call finishes (success or error), loading becomes false
+  // On success, job is a full object { id, status, config, model_id, dataset_id, ... }
+  // So the UI can render even if WS isn’t doing anything yet.
   useEffect(() => {
     const loadJob = async () => {
       try {
@@ -43,6 +49,8 @@ const JobDetail = () => {
   useWebSocket(
     wsUrl,
     (msg) => {
+      console.log("JobDetail received ws msg type=%s value=%r", msg.type, msg);
+
       switch (msg.type) {
         case 'log':
           setLogs((prev) => [...prev, msg.message].slice(-500));
@@ -51,7 +59,22 @@ const JobDetail = () => {
           setMetrics((prev) => [...prev, msg.metric]);
           break;
         case 'status':
-          setJob((prev) => (prev ? { ...prev, status: msg.status } : prev));
+          // If REST has already populated job, WS just updates status.
+          // If REST is slow and WS sends a status first, you still get a visible job with at least a status.
+          setJob((prev) => {
+            if (!prev) {
+              // REST hasn’t finished yet – create a minimal job so UI can still show something
+              return {
+                id: jobId,
+                status: msg.status,
+                config: {},
+              };
+            }
+            if (prev.status === msg.status) {
+              return prev; // no change
+            }
+            return { ...prev, status: msg.status };
+          });
           break;
         default:
           break;
@@ -59,6 +82,8 @@ const JobDetail = () => {
     },
     { reconnectInterval: 2000, maxReconnectAttempts: 10 }
   );
+
+
 
   if (loading) {
     return (
@@ -73,7 +98,7 @@ const JobDetail = () => {
       <div className="text-sm text-rose-300 bg-rose-950/40 border border-rose-800 rounded p-3">
         Could not load job: {err}
         <div className="mt-1 text-xs text-rose-200/80">
-          (Implement <code>GET /jobs/{{job_id}}</code> in your control-plane.)
+          (Implement <code>{`GET /jobs/${jobId}`}</code> in your control-plane.)
         </div>
       </div>
     );

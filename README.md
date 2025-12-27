@@ -36,7 +36,8 @@ eval $(minikube docker-env)
 docker build -t ai-platform-job-launcher:latest ./job-launcher
 docker build -t ai-platform-training-job:latest ./training-job
 
-kubectl delete pod <pod id for job launcher>
+kubectl get pods  -n training-jobs
+kubectl delete pod <pod id for job launcher>  -n training-jobs
 ```
 
 To install the data plan with Helm:

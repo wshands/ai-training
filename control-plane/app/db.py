@@ -136,7 +136,10 @@ async def fetch_job_events_since(
               job_id,
               event_time,
               payload,
-              payload->>'event_type' AS event_type
+              COALESCE(
+                payload->>'event_type',  -- if you ever add this
+                payload->>'type'         -- current data
+              ) AS event_type
             FROM job_events
             WHERE job_id = $1
               AND id > $2
