@@ -70,12 +70,15 @@ curl -X POST http://localhost:8000/jobs/train \
   }'
 ```
 
-To start UI:
+To start UI not using VSCode:
 ```bash
  cd frontend_full
  npm install
  npm start
 ```
+
+If using VSCode and Dockerfile.dev start debugging by picking the "UI + Attach backend (Docker)" (see .vscode/launch.json)
+
 
 To temporarily stop the cluster but keep data:
 ```bash

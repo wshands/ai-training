@@ -77,7 +77,9 @@ services:
       retries: 5
 
   control-plane:
-    build: ./control-plane
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile.dev   # 👈 only in dev compose
     environment:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
@@ -88,6 +90,10 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+      - "5678:5678"
+    volumes:
+      - ./control-plane:/app
+
 
   event-processor:
     build: ./event-processor
