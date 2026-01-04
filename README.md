@@ -79,6 +79,15 @@ To start UI not using VSCode:
 
 If using VSCode and Dockerfile.dev start debugging by picking the "UI + Attach backend (Docker)" (see .vscode/launch.json)
 
+To see API:
+```bash
+ open http://localhost:8000/docs
+```
+
+To see UI Dashboard:
+```bash
+ open http://localhost:3000
+```
 
 To temporarily stop the cluster but keep data:
 ```bash
@@ -89,3 +98,4 @@ To bring down the cluster and delete all data:
 ```bash
  minikube delete
 ```
+
