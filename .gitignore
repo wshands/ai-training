@@ -1,0 +1,62 @@
+# ---- macOS ----
+.DS_Store
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg*
+.eggs/
+.env
+.venv/
+venv/
+.env.*
+pip-wheel-metadata/
+coverage/
+htmlcov/
+
+# ---- Node / React ----
+node_modules/
+dist/
+build/
+.npm/
+.yarn/
+.yarn-cache/
+*.log
+
+# Next.js / Vite
+.next/
+out/
+.vite/
+
+# ---- Docker ----
+*.pid
+*.seed
+*.tar
+docker-compose.override.yml
+
+# ---- Kubernetes ----
+*.kubeconfig
+
+# ---- Terraform ----
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+
+# ---- Logs & temp ----
+logs/
+*.log
+tmp/
+.cache/
