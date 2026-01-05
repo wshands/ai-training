@@ -1,2 +1,4 @@
 aiokafka
 asyncpg
+redis[asyncio]
+

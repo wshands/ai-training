@@ -76,6 +76,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # ✅ NEW: Redis for pub/sub + websocket fanout
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   control-plane:
     build:
       context: ./control-plane
@@ -83,10 +98,13 @@ services:
     environment:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       kafka:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -94,38 +112,24 @@ services:
     volumes:
       - ./control-plane:/app
 
-
   event-processor:
     build: ./event-processor
     environment:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       kafka:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
   # JOB LAUNCHER is not run inside Docker Compose for Minikube setup
   # It is built and deployed as a Kubernetes Deployment in Minikube
 
-  #job-launcher:
-  #  build: ./job-launcher
-  #  extra_hosts:
-  #    - "host.minikube.internal:host-gateway"
-  #  environment:
-  #    # Connect Minikube → Kafka on macOS
-  #    KAFKA_BOOTSTRAP: host.minikube.internal:19092
-  #
-  #    # DO NOT load kubeconfig inside cluster
-  #    # Job-launcher Deployment in Minikube will load in-cluster config
-
-  #  depends_on:
-  #    kafka:
-  #      condition: service_healthy
-  #    postgres:
-  #      condition: service_healthy
-
 volumes:
   kafka-data: {}
   pg-data: {}
+  redis-data: {}

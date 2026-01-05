@@ -56,6 +56,16 @@ To watch Kafka queue:
 ```bash
  docker exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh  --bootstrap-server kafka:9092 --topic job-events --from-beginning
 ```
+To test Redis:
+```bash
+docker exec -it redis redis-cli PUBLISH job_events:testjob '{"event_type":"JOB_LOG","job_id":"testjob","message":"hello from redis"}'
+```
+
+To monitor Redis:
+```bash
+docker exec -it redis redis-cli ping
+docker exec -it redis redis-cli MONITOR
+```
 
 To submit a training request manually:
 ```bash

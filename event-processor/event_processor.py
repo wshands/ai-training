@@ -1,12 +1,21 @@
-import asyncio, os, json
-from aiokafka import AIOKafkaConsumer
+# import asyncio, os, json
+# from aiokafka import AIOKafkaConsumer
+# import asyncpg
+
+import asyncio
 import asyncpg
+import json
+import os
+from aiokafka import AIOKafkaConsumer
+import redis.asyncio as redis
 
 from state_machine import apply_event, JobState
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
 IN_TOPIC = os.environ.get("KAFKA_TOPIC", "job-events")
 POSTGRES_DSN = os.environ.get("POSTGRES_DSN", "postgresql://postgres:postgres@postgres:5432/controlplane")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")  # or wherever your Redis lives
+
 
 async def ensure_db(conn):
     await conn.execute("""CREATE TABLE IF NOT EXISTS job_events (
@@ -38,23 +47,38 @@ async def process_event(conn, ev):
         ev["job_id"], new_state.value, json.dumps(ev)
     )
 
-async def run():
+
+
+async def main():
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     consumer = AIOKafkaConsumer(
         IN_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP.split(","),
-        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+        bootstrap_servers=KAFKA_BOOTSTRAP,
         group_id="event-processor",
-        auto_offset_reset="earliest",
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     )
-    await consumer.start()
+
     conn = await asyncpg.connect(POSTGRES_DSN)
     await ensure_db(conn)
+
+    await consumer.start()
     try:
         async for msg in consumer:
+            event = msg.value  # dict: { event_type, job_id, ... }
+
+            # 1) Persist to Postgres (whatever you already do)
+            # await persist_to_db(event)
             await process_event(conn, msg.value)
+
+            # 2) Publish to Redis channel for this job
+            job_id = event.get("job_id")
+            if job_id:
+                channel = f"job_events:{job_id}"
+                await r.publish(channel, json.dumps(event))
     finally:
         await consumer.stop()
+        await r.aclose()
         await conn.close()
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    asyncio.run(main())

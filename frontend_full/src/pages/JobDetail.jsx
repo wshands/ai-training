@@ -25,63 +25,129 @@ const JobDetail = () => {
   const [metrics, setMetrics] = useState([]);
 
 
+
+const parseHistoryEvents = (events) => {
+  const logs = [];
+  const metrics = [];
+  let lastStatus = null;
+
+  for (const ev of events) {
+    const p = ev.payload || {};
+    const t = (p.type || '').toUpperCase();
+
+    if (t === 'JOB_LOG') {
+      if (p.message) logs.push(p.message);
+    }
+
+    if (t === 'EPOCH_METRIC' || t === 'JOB_METRIC') {
+      // Normalize to chart format expected by your <LineChart dataKey="loss" dataKey="step">
+      // You currently have epoch + loss; convert epoch -> step
+      const step = p.step ?? p.epoch ?? null;
+      if (step !== null && p.loss !== undefined) {
+        metrics.push({ step, loss: p.loss, ...p });
+      }
+    }
+
+    if (t.startsWith('JOB_')) {
+      // Use a stable set of statuses for badge
+      if (t === 'JOB_COMPLETED') lastStatus = 'COMPLETED';
+      else if (t === 'JOB_FAILED') lastStatus = 'FAILED';
+      else if (t === 'JOB_RUNNING' || t === 'JOB_STARTED') lastStatus = 'RUNNING';
+      else if (t === 'JOB_SUBMITTED') lastStatus = 'SUBMITTED';
+      else lastStatus = t.replace('JOB_', '');
+    }
+  }
+
+  // Ensure metrics are in order
+  metrics.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
+
+  return { logs, metrics, lastStatus };
+};
+
   //  This ensures:
   // loading starts true
   // After the HTTP call finishes (success or error), loading becomes false
   // On success, job is a full object { id, status, config, model_id, dataset_id, ... }
   // So the UI can render even if WS isn’t doing anything yet.
   useEffect(() => {
-    const loadJob = async () => {
+    let cancelled = false;
+
+    const loadJobAndHistory = async () => {
+      setLoading(true);
+      setErr('');
+      setLogs([]);
+      setMetrics([]);
+
       try {
-        const res = await api.get(`/jobs/${jobId}`);
-        setJob(res.data);
+        const [jobRes, evRes] = await Promise.all([
+          api.get(`/jobs/${jobId}`),
+          api.get(`/jobs/${jobId}/events?since_id=0&limit=5000`),
+        ]);
+
+        if (cancelled) return;
+
+        const jobData = jobRes.data;
+        const events = evRes.data || [];
+
+        const { logs, metrics, lastStatus } = parseHistoryEvents(events);
+
+        setJob(lastStatus ? { ...jobData, status: jobData.status || lastStatus } : jobData);
+        setLogs(logs.slice(-500));
+        setMetrics(metrics);
+
       } catch (e) {
+        if (cancelled) return;
         setErr(handleApiError(e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    loadJob();
+
+    loadJobAndHistory();
+    return () => {
+      cancelled = true;
+    };
   }, [jobId]);
+
+
+
 
   const wsUrl = `${WS_BASE_URL}/ws/jobs/${jobId}`;
 
-  useWebSocket(
-    wsUrl,
-    (msg) => {
-      console.log("JobDetail received ws msg type=%s value=%r", msg.type, msg);
+useWebSocket(
+  wsUrl,
+  (msg) => {
+    console.log("JobDetail received ws msg type=%s value=%r", msg.type, msg);
+    const t = (msg?.type || '').toLowerCase();
 
-      switch (msg.type) {
-        case 'log':
-          setLogs((prev) => [...prev, msg.message].slice(-500));
-          break;
-        case 'metric':
-          setMetrics((prev) => [...prev, msg.metric]);
-          break;
-        case 'status':
-          // If REST has already populated job, WS just updates status.
-          // If REST is slow and WS sends a status first, you still get a visible job with at least a status.
-          setJob((prev) => {
-            if (!prev) {
-              // REST hasn’t finished yet – create a minimal job so UI can still show something
-              return {
-                id: jobId,
-                status: msg.status,
-                config: {},
-              };
-            }
-            if (prev.status === msg.status) {
-              return prev; // no change
-            }
-            return { ...prev, status: msg.status };
-          });
-          break;
-        default:
-          break;
-      }
-    },
-    { reconnectInterval: 2000, maxReconnectAttempts: 10 }
-  );
+    // UI-friendly messages
+    if (t === 'log') {
+      setLogs((prev) => [...prev, msg.message].slice(-500));
+      return;
+    }
+    if (t === 'metric') {
+      const m = msg.metric || {};
+      const step = m.step ?? m.epoch;
+      setMetrics((prev) => [...prev, { ...m, step }].sort((a,b)=> (a.step??0)-(b.step??0)));
+      return;
+    }
+    if (t === 'status') {
+      setJob((prev) => (prev ? { ...prev, status: msg.status } : { id: jobId, status: msg.status, config: {} }));
+      return;
+    }
+
+    // If backend ever sends raw events, support them too
+    const rawType = (msg?.event_type || msg?.payload?.type || msg?.type || '').toUpperCase();
+    if (rawType === 'JOB_LOG' && msg.payload?.message) {
+      setLogs((prev) => [...prev, msg.payload.message].slice(-500));
+    }
+    if ((rawType === 'EPOCH_METRIC' || rawType === 'JOB_METRIC') && msg.payload?.loss !== undefined) {
+      const step = msg.payload.step ?? msg.payload.epoch;
+      setMetrics((prev) => [...prev, { ...msg.payload, step }].sort((a,b)=> (a.step??0)-(b.step??0)));
+    }
+  },
+  { reconnectInterval: 2000, maxReconnectAttempts: 10 }
+);
 
 
 

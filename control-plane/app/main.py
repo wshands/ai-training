@@ -11,14 +11,19 @@ from fastapi import WebSocket
 
 
 
-import uuid, time, json, asyncio
+import uuid
+import time
+import json
+import asyncio
 
 
 from .config import (
     TRAINING_NAMESPACE,
     TRAINING_IMAGE,
     CUSTOMER_KUBECONFIG,
+    REDIS_URL,
 )
+
 from .kafka_bus import init_kafka, send_event
 from .db import (
     init_db,
@@ -39,6 +44,7 @@ from datetime import datetime
 
 from kubernetes import client, config as k8s_config
 
+import redis.asyncio as redis
 
 import logging
 
@@ -111,10 +117,28 @@ def load_k8s_clients():
     k8s_config.load_kube_config(CUSTOMER_KUBECONFIG)
     return client.BatchV1Api(), client.CoreV1Api()
 
+# create one shared Redis connection pool per process
+redis_client: redis.Redis | None = None
+
 @app.on_event("startup")
-async def startup():
+async def on_startup():
     await init_db()
     await init_kafka()
+
+    global redis_client
+    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    global redis_client
+    if redis_client:
+        await redis_client.aclose()
+        redis_client = None
+
+
+
+
+
 
 @app.post("/jobs/train")
 async def submit_training_job(req: TrainJobRequest):
@@ -252,50 +276,101 @@ async def get_job(job_id: str) -> JobSummary:
 
 
 @app.websocket("/ws/jobs/{job_id}")
-async def job_event_stream(websocket: WebSocket, job_id: str):
+async def ws_job_stream(websocket: WebSocket, job_id: str):
     await websocket.accept()
-    last_id = 0
-    try:
-        while True:
-            events = await fetch_job_events_since(job_id, last_id=last_id, limit=200)
-            for e in events:
-                logger.info("job_event_stream ev type=%s value=%r", type(e), e)
 
-                last_id = e["id"]
-                payload = json.loads(e["payload"]) if isinstance(e["payload"], str) else (e["payload"] or {})
-                event_type = e["event_type"] or payload.get("event_type") or payload.get("type") or "UNKNOWN"
+    # Each WS gets its own pubsub subscription
 
-                # Map raw events into frontend-friendly messages.
-                #
-                # You can shape this however you like, but one common mapping is:
-                # - JOB_LOG        -> {type: "log", message: "..."}
-                # - JOB_METRIC     -> {type: "metric", metric: {...}}
-                # - JOB_* state    -> {type: "status", status: "RUNNING"/...}
-                msg: dict[str, Any]
-
-                if event_type == "JOB_LOG":
-                    msg = {"type": "log", "message": payload.get("message", "")}
-                elif event_type in ("JOB_METRIC", "EPOCH_METRIC"):
-                    msg = {"type": "metric", "metric": payload}
-                    #msg = {"type": "metric", "metric": payload.get("metric", {})}
-                elif event_type.startswith("JOB_"):
-                    # derive state using the same enum as event-processor.state_machine
-                    msg = {"type": "status", "status": payload.get("state", event_type)}
-                else:
-                    msg = {
-                        "type": "raw_event",
-                        "event_type": event_type,
-                        "payload": payload,
-                    }
-
-                logger.info("job_event_stream msg type=%s value=%r", type(msg), msg)
-                await websocket.send_json(msg)
-
-            await asyncio.sleep(1.0)
-    except WebSocketDisconnect:
-        # client closed
-        return
-    except Exception as e:
-        # log and close
-        print("Error in job_event_stream:", e, flush=True)
+    if redis_client is None:
         await websocket.close(code=1011)
+        return
+
+    r = redis_client  # type: ignore
+    pubsub = r.pubsub()
+    channel = f"job_events:{job_id}"
+    await pubsub.subscribe(channel)
+
+    try:
+        # pubsub.listen() yields dicts: {"type", "channel", "data", ...}
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+
+            raw = message["data"]
+            try:
+                event = json.loads(raw)
+            except Exception:
+                # If some old publisher sent non-JSON data
+                continue
+
+            #event_type = event.get("event_type", "")
+
+            logger.info("job_event_stream event type=%s value=%r", type(event), event)
+            #payload = json.loads(event["payload"]) if isinstance(event["payload"], str) else (event["payload"] or {})
+            #event_type = event["event_type"] or payload.get("event_type") or payload.get("type") or "UNKNOWN"
+
+            payload = event
+            event_type = event["type"] or "UNKNOWN"
+
+            # Map raw events into frontend-friendly messages.
+            #
+            # You can shape this however you like, but one common mapping is:
+            # - JOB_LOG        -> {type: "log", message: "..."}
+            # - JOB_METRIC     -> {type: "metric", metric: {...}}
+            # - JOB_* state    -> {type: "status", status: "RUNNING"/...}
+            msg: dict[str, Any]
+
+            if event_type == "JOB_LOG":
+                msg = {"type": "log", "message": payload.get("message", "")}
+            elif event_type in ("JOB_METRIC", "EPOCH_METRIC"):
+                msg = {"type": "metric", "metric": payload}
+                    #msg = {"type": "metric", "metric": payload.get("metric", {})}
+            elif event_type.startswith("JOB_"):
+                    # derive state using the same enum as event-processor.state_machine
+                msg = {"type": "status", "status": payload.get("state", event_type)}
+            else:
+                msg = {
+                    "type": "raw_event",
+                    "event_type": event_type,
+                    "payload": payload,
+                }
+
+            logger.info("job_event_stream msg type=%s value=%r", type(msg), msg)
+            await websocket.send_json(msg)
+
+    except WebSocketDisconnect:
+        # client disconnected
+        pass
+    except Exception as e:
+        print(f"ws_job_stream error for {job_id}: {e}", flush=True)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+    finally:
+        try:
+            await pubsub.unsubscribe(channel)
+        except Exception:
+            pass
+        try:
+            await pubsub.close()
+        except Exception:
+            pass
+
+
+@app.get("/jobs/{job_id}/events")
+async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
+    rows = await fetch_job_events_since(job_id=job_id, last_id=since_id, limit=limit)
+    # Ensure payload is a dict for the frontend
+    out = []
+    for r in rows:
+        payload = r["payload"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        out.append({
+            "id": r["id"],
+            "job_id": r["job_id"],
+            "event_time": r.get("event_time"),
+            "payload": payload or {},
+        })
+    return out
