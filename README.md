@@ -40,7 +40,7 @@ kubectl get pods  -n training-jobs
 kubectl delete pod <pod id for job launcher>  -n training-jobs
 ```
 
-To install the data plan with Helm:
+To install the data plane with Helm:
 ```bash
  helm upgrade --install ai-platform-data-plane ./helm-data-plane -n training-jobs
 ```

@@ -1,56 +1,54 @@
-from enum import Enum
 
-from fastapi import FastAPI, HTTPException
+import logging
+import os
+# Why put logging setup outside main()?
+# Anything imported before you call setup_logging() might emit logs (or configure logging itself).
+# Calling it at module import time ensures all logs (including early startup) use your format/level.
+# In containers, the entrypoint module is the natural “one-time per process” place.
+# force=True tells Python to remove any existing logging handlers and reconfigure
+# logging with your settings. This is useful in container apps because frameworks
+# (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
+def setup_logging() -> None:
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True
+    )
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.websockets import WebSocket, WebSocketDisconnect
-
-from fastapi import WebSocket
-
-
-
+setup_logging()
+logger = logging.getLogger(__name__)
 
 import uuid
 import time
 import json
-import asyncio
+import redis.asyncio as redis
 
+from datetime import datetime
+from enum import Enum
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.websockets import WebSocket, WebSocketDisconnect
+from kubernetes import client, config as k8s_config
+from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
+#from fastapi import WebSocket
 from .config import (
     TRAINING_NAMESPACE,
     TRAINING_IMAGE,
     CUSTOMER_KUBECONFIG,
     REDIS_URL,
 )
-
 from .kafka_bus import init_kafka, send_event
 from .db import (
     init_db,
     persist_initial_job,
     fetch_jobs,
-    fetch_job,
     fetch_job_events_since,
 )
 # plus the models you defined above:
 # JobState, TrainJobRequest, JobSummary, JobDetail, JobEvent, DeploymentSummary
-
-
-
-from pydantic import BaseModel, Field
-
-from typing import Any, Dict, List, Optional
-from datetime import datetime
-
-from kubernetes import client, config as k8s_config
-
-import redis.asyncio as redis
-
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 class JobState(str, Enum):
     SUBMITTED = "SUBMITTED"
     PENDING = "PENDING"
@@ -84,6 +82,7 @@ class JobEvent(BaseModel):
 class JobDetail(JobSummary):
     events: List[JobEvent] = Field(default_factory=list)
 
+
 app = FastAPI(title="AI Platform Control Plane")
 
 # Configure CORS
@@ -113,6 +112,7 @@ class TrainJobRequest(BaseModel):
     distributed: bool = False
     extra_config: dict | None = None
 
+
 def load_k8s_clients():
     k8s_config.load_kube_config(CUSTOMER_KUBECONFIG)
     return client.BatchV1Api(), client.CoreV1Api()
@@ -134,10 +134,6 @@ async def on_shutdown():
     if redis_client:
         await redis_client.aclose()
         redis_client = None
-
-
-
-
 
 
 @app.post("/jobs/train")
@@ -361,16 +357,17 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
 @app.get("/jobs/{job_id}/events")
 async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
     rows = await fetch_job_events_since(job_id=job_id, last_id=since_id, limit=limit)
-    # Ensure payload is a dict for the frontend
     out = []
     for r in rows:
         payload = r["payload"]
         if isinstance(payload, str):
             payload = json.loads(payload)
+        event_type = r.get("event_type") or payload.get("event_type") or payload.get("type") or "UNKNOWN"
         out.append({
             "id": r["id"],
             "job_id": r["job_id"],
-            "event_time": r.get("event_time"),
+            "event_time": r["event_time"].isoformat() if r.get("event_time") else None,
+            "event_type": event_type,
             "payload": payload or {},
         })
     return out

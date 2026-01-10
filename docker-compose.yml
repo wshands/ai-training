@@ -55,11 +55,23 @@ services:
       - kafka-data:/var/lib/kafka/data
 
     healthcheck:
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/9092"]
+      test: ["CMD", "/bin/bash", "-lc", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 5s
       timeout: 5s
-      retries: 10
       start_period: 25s
+      retries: 20
+
+  db-init:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile.dev
+    environment:
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-c", "import asyncio; from app.db import init_db; asyncio.run(init_db())"]
+    restart: "no"
 
   postgres:
     image: postgres:14
@@ -100,6 +112,8 @@ services:
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
       REDIS_URL: redis://redis:6379/0
     depends_on:
+      db-init:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       postgres:
@@ -112,22 +126,43 @@ services:
     volumes:
       - ./control-plane:/app
 
-  event-processor:
-    build: ./event-processor
-    environment:
-      KAFKA_BOOTSTRAP: kafka:9092   # FIXED
-      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
-      REDIS_URL: redis://redis:6379/0
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
     depends_on:
       kafka:
         condition: service_healthy
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      set -euo pipefail;
+      echo "Waiting for Kafka...";
+      for i in {1..60}; do
+        kafka-topics --bootstrap-server kafka:9092 --list >/dev/null 2>&1 && break;
+        echo "waiting for kafka..." && sleep 1;
+      done;
+      kafka-topics --bootstrap-server kafka:9092
+        --create --if-not-exists
+        --topic job-events --partitions 3 --replication-factor 1;
+      echo "Kafka topics created.";
+
+
+
+  event-processor:
+    build: ./event-processor
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
-  # JOB LAUNCHER is not run inside Docker Compose for Minikube setup
-  # It is built and deployed as a Kubernetes Deployment in Minikube
 
 volumes:
   kafka-data: {}

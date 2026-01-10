@@ -22,6 +22,12 @@ async def init_db():
                 status TEXT DEFAULT 'SUBMITTED'
             );
             """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_jobs_created_at_desc
+            ON jobs(created_at DESC);
+            """)
+
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_events (
                 id BIGSERIAL PRIMARY KEY,
@@ -30,6 +36,12 @@ async def init_db():
                 payload JSONB
             );
             """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_job_events_job_id_id
+            ON job_events(job_id, id);
+            """)
+
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_state (
                 job_id TEXT PRIMARY KEY,
@@ -38,6 +50,12 @@ async def init_db():
                 updated_at TIMESTAMP
             );
             """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_job_events_job_id_id
+            ON job_events(job_id, id);
+            """)
+
     return pool
 
 async def persist_initial_job(job_id: str, config: dict):

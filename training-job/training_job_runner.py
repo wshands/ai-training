@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os, json, time, sys, signal, asyncio
+import uuid
 import torch
 from aiokafka import AIOKafkaProducer
+from typing import Any, Dict
 
 terminate = False
 def handle_sigterm(signum, frame):
@@ -27,22 +29,43 @@ async def init_producer():
     await producer.start()
 
 
-async def emit(event_type, job_id, **kwargs):
+async def emit(event_type: str, job_id: str, **kwargs: Any) -> None:
     if producer is None:
         raise RuntimeError("Producer not initialized")
 
-    event = {
+    event: Dict[str, Any] = {
+        "event_id": str(uuid.uuid4()),
         "type": event_type,
         "job_id": job_id,
-        "timestamp": int(time.time()),
-        **kwargs,
+        "timestamp_ms": int(time.time() * 1000), # epoch ms
+        #You can implement seq in the job-runner (single source of truth for that job) if you want it.
+        # "seq": <monotonic counter per job>, 
+        **kwargs
     }
 
+
     try:
-        await producer.send_and_wait(TOPIC, event)
+        # If all events for a given job_id go to the same partition (same key),
+        # then Kafka will deliver them in the exact order they were appended
+        # to that partition.
+        # They can still be “out of time order” if the producer 
+        # itself emitted them out of order (different threads, retries, buffering,
+        # clock skew), but they will be in “producer append order.”
+        # This is important for correct event processing.
+        meta = await producer.send_and_wait(
+            TOPIC,
+            value=event,
+            key=job_id.encode("utf-8"),
+        )
+        # Verify per-job single partition
+        print(
+            f"sent job_id={job_id} type={event_type} "
+            f"partition={meta.partition} offset={meta.offset}",
+            flush=True,
+        )
     except Exception as e:
         print("kafka send failed", e, flush=True)
-
+        raise
 
 
 # ---------- TRAINING LOGIC ----------
