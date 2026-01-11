@@ -177,16 +177,16 @@ async def submit_training_job(req: TrainJobRequest):
 async def list_jobs(limit: int = 100):
     rows = await fetch_jobs(limit=limit)
     summaries: List[JobSummary] = []
+
     for r in rows:
         summaries.append(
             JobSummary(
                 job_id=r["job_id"],
-                status=(r["status"] or "UNKNOWN"),
+                status=(r["status"] or "SUBMITTED"),  # should never be null now
                 created_at=r["created_at"],
                 submitted_at=r.get("submitted_at"),
                 updated_at=r.get("updated_at"),
-                #config=r["config"] or {},
-                config = json.loads(r["config"]) if isinstance(r["config"], str) else (r["config"] or {}),
+                config=json.loads(r["config"]) if isinstance(r["config"], str) else (r["config"] or {}),
             )
         )
     return summaries

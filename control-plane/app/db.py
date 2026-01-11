@@ -18,8 +18,7 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT now(),
                 submitted_at TIMESTAMP,
                 updated_at TIMESTAMP,
-                config JSONB NOT NULL,
-                status TEXT DEFAULT 'SUBMITTED'
+                config JSONB NOT NULL
             );
             """)
 
@@ -44,19 +43,22 @@ async def init_db():
 
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_state (
-                job_id TEXT PRIMARY KEY,
-                last_state TEXT,
-                last_event JSONB,
-                updated_at TIMESTAMP
+            job_id TEXT PRIMARY KEY,
+            last_state TEXT NOT NULL DEFAULT 'SUBMITTED',
+            last_event JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMP NOT NULL DEFAULT now()
             );
             """)
 
+            # ✅ Removed the duplicate CREATE INDEX for job_events
+            # If you want an index on job_state, do this instead:
             await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_job_events_job_id_id
-            ON job_events(job_id, id);
+            CREATE INDEX IF NOT EXISTS idx_job_state_updated_at_desc
+            ON job_state(updated_at DESC);
             """)
 
     return pool
+
 
 async def persist_initial_job(job_id: str, config: dict):
     global pool
@@ -72,20 +74,11 @@ async def persist_initial_job(job_id: str, config: dict):
         )
 
 
-
-
 async def fetch_jobs(limit: int = 100) -> List[asyncpg.Record]:
-    """
-    Return recent jobs.
-
-    You can:
-    - Either add a 'status' column to jobs, updated by event-processor,
-    - Or compute status from job_events in a subquery.
-    For now, assume jobs.status may or may not exist and default to UNKNOWN.
-    """
     global pool
     if pool is None:
         await init_db()
+
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -93,10 +86,12 @@ async def fetch_jobs(limit: int = 100) -> List[asyncpg.Record]:
               j.job_id,
               j.created_at,
               j.submitted_at,
-              j.updated_at,
+              COALESCE(js.updated_at, j.updated_at) AS updated_at,
               j.config,
-              COALESCE(j.status, 'UNKNOWN') AS status
+              COALESCE(js.last_state, 'SUBMITTED') AS status
             FROM jobs AS j
+            LEFT JOIN job_state AS js
+              ON js.job_id = j.job_id
             ORDER BY j.created_at DESC
             LIMIT $1
             """,

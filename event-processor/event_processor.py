@@ -83,50 +83,42 @@ async def wait_for_schema(conn, timeout_s: int = 60):
 MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
 
 
-def _rows_affected(status: str) -> int:
+def _ts_to_pg_seconds(ts: Optional[int | float]) -> Optional[float]:
     """
-    Parse asyncpg status strings like:
-      - "UPDATE 0"
-      - "UPDATE 1"
-      - "INSERT 0 1"
-    and return the affected row count (best-effort).
+    Convert epoch timestamps to seconds for Postgres to_timestamp().
+    Accepts seconds or milliseconds.
     """
-    parts = status.split()
-    if not parts:
-        return 0
-
-    # Typical cases:
-    # UPDATE <n>
-    if parts[0].upper() == "UPDATE" and len(parts) >= 2 and parts[1].isdigit():
-        return int(parts[1])
-
-    # INSERT <oid> <n>
-    if parts[0].upper() == "INSERT" and len(parts) >= 3 and parts[2].isdigit():
-        return int(parts[2])
-
-    # Fallback: try last token
-    if parts[-1].isdigit():
-        return int(parts[-1])
-
-    return 0
-
+    if ts is None:
+        return None
+    ts_f = float(ts)
+    # Heuristic: >= 1e12 is almost certainly milliseconds
+    if ts_f >= 1_000_000_000_000:
+        return ts_f / 1000.0
+    return ts_f
 
 async def apply_job_event_to_jobs_table(
     conn,
-    *, # Everything after * must be passed by keyword, not position.
+    *,
     job_id: str,
     ev_type: str,
-    # The quotes mean forward reference: Python will treat "JobState" 
-    # as a type name even if JobState is defined later (or only
-    #  available at type-check time).
-    # In practice it might be an Enum where you store new_state.value into the DB.
-    new_state: "JobState",  # or Enum/str; align with your codebase
     ts: Optional[int],
     config: Optional[Mapping[str, Any]] = None,
     on_missing_job_row: MissingJobRowPolicy = "warn",
 ) -> None:
     """
-    Persist a job's current status (and initial metadata) into the `jobs` table.
+    Maintain job *metadata* in the `jobs` table.
+
+    Source of truth for status is `job_state.last_state`.
+    `jobs` is for:
+      - config
+      - submitted_at
+      - updated_at
+      - created_at (default)
+
+    Missing-row policy for non-submit events:
+      - warn (default)
+      - raise
+      - upsert_stub
 
     Why `JOB_SUBMITTED` is handled differently
     -----------------------------------------
@@ -160,88 +152,98 @@ async def apply_job_event_to_jobs_table(
     Returns
     -------
     None
+
+
     """
+    ts_sec = _ts_to_pg_seconds(ts)
     config_json = json.dumps(config) if config is not None else None
 
     if ev_type == "JOB_SUBMITTED":
         await conn.execute(
             """
-            INSERT INTO jobs (job_id, config, status, submitted_at, updated_at)
+            INSERT INTO jobs (job_id, config, submitted_at, updated_at)
             VALUES (
                 $1,
                 COALESCE($2::jsonb, '{}'::jsonb),
-                $3,
-                COALESCE(to_timestamp($4), now()),
-                COALESCE(to_timestamp($4), now())
+                COALESCE(to_timestamp($3), now()),
+                COALESCE(to_timestamp($3), now())
             )
             ON CONFLICT (job_id) DO UPDATE
-              SET status       = EXCLUDED.status,
-                  submitted_at = COALESCE(jobs.submitted_at, EXCLUDED.submitted_at),
+              SET submitted_at = COALESCE(jobs.submitted_at, EXCLUDED.submitted_at),
                   updated_at   = EXCLUDED.updated_at,
-                  config       = COALESCE(jobs.config, EXCLUDED.config)
+                  config       = CASE
+                                  WHEN jobs.config = '{}'::jsonb
+                                       AND EXCLUDED.config <> '{}'::jsonb
+                                  THEN EXCLUDED.config
+                                  ELSE jobs.config
+                                END
             """,
             job_id,
             config_json,
-            new_state.value,
-            ts,
+            ts_sec,
         )
         return
 
-    # Non-submit event: update existing job row
-    status = await conn.execute(
+    # ✅ Non-submit events: update existing row only; return an integer count
+    updated = await conn.fetchval(
         """
-        UPDATE jobs
-           SET status     = $2,
-               updated_at = COALESCE(to_timestamp($3), now())
-         WHERE job_id     = $1
+        WITH u AS (
+          UPDATE jobs
+             SET updated_at = COALESCE(to_timestamp($2), now()),
+                 config     = COALESCE($3::jsonb, jobs.config)
+           WHERE job_id = $1
+           RETURNING 1
+        )
+        SELECT count(*) FROM u;
         """,
         job_id,
-        new_state.value,
-        ts,
+        ts_sec,
+        config_json,
     )
 
-    if _rows_affected(status) > 0:
+    if updated and int(updated) > 0:
         return
 
-    # UPDATE hit 0 rows -> missing job row (out-of-order or missing submit)
-    msg = (
-        f"jobs row missing for job_id={job_id!r} while processing ev_type={ev_type!r}. "
-        f"Likely out-of-order events or missing JOB_SUBMITTED."
-    )
-
+    # Missing jobs row for a non-submit event
     if on_missing_job_row == "warn":
-        logger.warning(msg)
+        logger.warning(
+            "apply_job_event_to_jobs_table: missing jobs row for job_id=%s ev_type=%s; ignored",
+            job_id,
+            ev_type,
+        )
         return
 
     if on_missing_job_row == "raise":
-        raise RuntimeError(msg)
+        raise RuntimeError(
+            f"Missing jobs row for job_id={job_id} while processing ev_type={ev_type}"
+        )
 
     if on_missing_job_row == "upsert_stub":
-        # Create a minimal row (stub) so the job exists. Note: semantics are weaker because we
-        # didn't see the true submit/config yet.
         await conn.execute(
             """
-            INSERT INTO jobs (job_id, config, status, submitted_at, updated_at)
+            INSERT INTO jobs (job_id, config, submitted_at, updated_at)
             VALUES (
                 $1,
-                '{}'::jsonb,
-                $2,
+                COALESCE($2::jsonb, '{}'::jsonb),
                 NULL,
                 COALESCE(to_timestamp($3), now())
             )
             ON CONFLICT (job_id) DO UPDATE
-              SET status     = EXCLUDED.status,
-                  updated_at = EXCLUDED.updated_at
+              SET updated_at = EXCLUDED.updated_at,
+                  config     = CASE
+                                WHEN jobs.config = '{}'::jsonb
+                                     AND EXCLUDED.config <> '{}'::jsonb
+                                THEN EXCLUDED.config
+                                ELSE jobs.config
+                              END
             """,
             job_id,
-            new_state.value,
-            ts,
+            config_json,
+            ts_sec,
         )
-        logger.warning("%s (created stub row via on_missing_job_row='upsert_stub')", msg)
         return
 
-    # Defensive: if someone passes an unexpected policy
-    raise ValueError(f"Unknown on_missing_job_row policy: {on_missing_job_row!r}")
+    raise ValueError(f"Unknown on_missing_job_row policy: {on_missing_job_row}")
 
 
 def _normalize_event_type(ev: dict) -> str:
@@ -300,10 +302,10 @@ async def process_event(conn, ev) -> dict:
 
         # 5) Update jobs table if applicable
         #await upsert_job_row(conn, ev, new_state)
-        await apply_job_event_to_jobs_table(conn, 
+        await apply_job_event_to_jobs_table(
+            conn,
             job_id=job_id,
             ev_type=event_type,
-            new_state=new_state,
             ts=ev.get("timestamp"),
             config=ev.get("config"),
             on_missing_job_row="warn",
