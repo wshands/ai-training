@@ -258,6 +258,12 @@ async def process_event(conn, ev) -> dict:
     ws_event: dict | None = None
 
     async with conn.transaction():
+        # Normalize timestamps: accept either seconds ("timestamp") or milliseconds ("timestamp_ms")
+        ts_raw = ev.get("timestamp")
+        if ts_raw is None:
+            ts_raw = ev.get("timestamp_ms")
+        ts_sec = _ts_to_pg_seconds(ts_raw)
+
         # 1) Insert job_event + capture id/time for ordering
         inserted = await conn.fetchrow(
             """
@@ -266,7 +272,7 @@ async def process_event(conn, ev) -> dict:
             RETURNING id, job_id, event_time
             """,
             ev["job_id"],
-            ev.get("timestamp"),
+            ts_sec,
             json.dumps(ev),
         )
 
@@ -306,7 +312,7 @@ async def process_event(conn, ev) -> dict:
             conn,
             job_id=job_id,
             ev_type=event_type,
-            ts=ev.get("timestamp"),
+            ts=ts_raw,
             config=ev.get("config"),
             on_missing_job_row="warn",
         )

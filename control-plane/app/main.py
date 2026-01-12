@@ -246,7 +246,7 @@ async def get_job(job_id: str) -> JobSummary:
             status = "RUNNING"
 
         elif event_type == "JOB_COMPLETED":
-            status = "COMPLETED"
+            status = "SUCCEEDED"
 
         elif event_type == "JOB_FAILED":
             status = "FAILED"
@@ -322,8 +322,7 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
                 msg = {"type": "metric", "metric": payload}
                     #msg = {"type": "metric", "metric": payload.get("metric", {})}
             elif event_type.startswith("JOB_"):
-                    # derive state using the same enum as event-processor.state_machine
-                msg = {"type": "status", "status": payload.get("state", event_type)}
+                msg = {"type": "status", "status": payload.get("_state") or payload.get("state") or event_type}
             else:
                 msg = {
                     "type": "raw_event",

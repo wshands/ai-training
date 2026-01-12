@@ -1,24 +1,46 @@
 from enum import Enum
-
-
 class JobState(str, Enum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    PREEMPTED = "PREEMPTED"
-    SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
-    UNKNOWN = "UNKNOWN"
-
-
-
+     SUBMITTED = "SUBMITTED"
+     PENDING = "PENDING"
+     RUNNING = "RUNNING"
+     PREEMPTED = "PREEMPTED"
+     SUCCEEDED = "SUCCEEDED"
+     FAILED = "FAILED"
+     CANCELLED = "CANCELLED"
+     UNKNOWN = "UNKNOWN"
+ 
+ 
 TRANSITIONS = {
-    JobState.PENDING: {"JOB_STARTED": JobState.RUNNING, "JOB_FAILED": JobState.FAILED, "JOB_CANCELLED": JobState.CANCELLED},
-    JobState.RUNNING: {"JOB_COMPLETED": JobState.SUCCEEDED, "JOB_FAILED": JobState.FAILED, "JOB_PREEMPTED": JobState.PREEMPTED, "JOB_CANCELLED": JobState.CANCELLED},
+    JobState.SUBMITTED: {
+        "JOB_SUBMITTED": JobState.SUBMITTED,
+        "JOB_STARTED": JobState.RUNNING,
+        "JOB_FAILED": JobState.FAILED,
+        "JOB_CANCELLED": JobState.CANCELLED,
+    },
+    JobState.PENDING: {
+        "JOB_SUBMITTED": JobState.SUBMITTED,
+        "JOB_STARTED": JobState.RUNNING,
+        "JOB_FAILED": JobState.FAILED,
+        "JOB_CANCELLED": JobState.CANCELLED,
+    },
+    JobState.RUNNING: {
+        "JOB_COMPLETED": JobState.SUCCEEDED,
+        "JOB_FAILED": JobState.FAILED,
+        "JOB_PREEMPTED": JobState.PREEMPTED,
+        "JOB_CANCELLED": JobState.CANCELLED,
+    },
+    JobState.PREEMPTED: {
+        "JOB_RESTARTED": JobState.RUNNING,
+        "JOB_FAILED": JobState.FAILED,
+        "JOB_CANCELLED": JobState.CANCELLED,
+    },
+    JobState.SUCCEEDED: {},
+    JobState.FAILED: {},
+    JobState.CANCELLED: {},
 }
 
 def apply_event(current_state: JobState | None, event_type: str) -> JobState:
     if current_state is None:
-        current_state = JobState.PENDING
+        current_state = JobState.SUBMITTED
     allowed = TRANSITIONS.get(current_state, {})
     return allowed.get(event_type, current_state)
