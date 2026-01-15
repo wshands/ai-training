@@ -1,3 +1,4 @@
 aiokafka
 numpy
+pydantic
 torch

@@ -63,14 +63,14 @@ services:
 
   db-init:
     build:
-      context: ./control-plane
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: control-plane/Dockerfile.dev
     environment:
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["python", "-c", "import asyncio; from app.db import init_db; asyncio.run(init_db())"]
+    command: ["python", "-c", "import asyncio; from common.ai_training_common.db import init_db; asyncio.run(init_db())"]
     restart: "no"
 
   postgres:
@@ -105,8 +105,8 @@ services:
 
   control-plane:
     build:
-      context: ./control-plane
-      dockerfile: Dockerfile.dev   # 👈 only in dev compose
+      context: .
+      dockerfile: control-plane/Dockerfile.dev   # 👈 only in dev compose
     environment:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
@@ -124,7 +124,8 @@ services:
       - "8000:8000"
       - "5678:5678"
     volumes:
-      - ./control-plane:/app
+      - ./control-plane:/app/control-plane   # 👈 only in dev compose
+      - ./common:/app/common   # 👈 only in dev compose
 
 
   kafka-init:
@@ -148,7 +149,9 @@ services:
 
 
   event-processor:
-    build: ./event-processor
+    build:
+      context: .
+      dockerfile: event-processor/Dockerfile
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
@@ -162,7 +165,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./event-processor:/app/event-processor   # 👈 only in dev compose
+      - ./common:/app/common   # 👈 only in dev compose
 
 volumes:
   kafka-data: {}

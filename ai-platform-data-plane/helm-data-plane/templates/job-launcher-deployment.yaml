@@ -21,7 +21,7 @@ spec:
           env:
             - name: KAFKA_BOOTSTRAP
               value: "{{ .Values.jobLauncher.kafkaBootstrap }}"
-            - name: JOB_EVENTS_TOPIC
+            - name: KAFKA_TOPIC
               value: "{{ .Values.jobLauncher.jobEventsTopic }}"
             - name: TRAINING_NAMESPACE
               value: "{{ .Values.jobLauncher.trainingNamespace }}"

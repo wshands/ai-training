@@ -1,4 +1,6 @@
 aiokafka
 asyncpg
+debugpy
+pydantic
 redis[asyncio]
 

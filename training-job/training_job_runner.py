@@ -1,9 +1,31 @@
-#!/usr/bin/env python3
+
+import logging
+import os
+# Why put logging setup outside main()?
+# Anything imported before you call setup_logging() might emit logs (or configure logging itself).
+# Calling it at module import time ensures all logs (including early startup) use your format/level.
+# In containers, the entrypoint module is the natural “one-time per process” place.
+# force=True tells Python to remove any existing logging handlers and reconfigure
+# logging with your settings. This is useful in container apps because frameworks
+# (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
+def setup_logging() -> None:
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True
+    )
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+from common.ai_training_common.events import JobEventIn, EventType
 import os, json, time, sys, signal, asyncio
-import uuid
 import torch
 from aiokafka import AIOKafkaProducer
 from typing import Any, Dict
+
 
 terminate = False
 def handle_sigterm(signum, frame):
@@ -17,6 +39,8 @@ TOPIC = os.environ.get("KAFKA_TOPIC", "job-events")
 
 # ---------- PRODUCER INIT ----------
 producer: AIOKafkaProducer | None = None
+current_seq: int = 0
+PRODUCER_NAME = os.environ.get("PRODUCER_NAME", "training-job")
 
 async def init_producer():
     global producer
@@ -29,42 +53,34 @@ async def init_producer():
     await producer.start()
 
 
-async def emit(event_type: str, job_id: str, **kwargs: Any) -> None:
+async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
+    global current_seq
     if producer is None:
         raise RuntimeError("Producer not initialized")
 
-    event: Dict[str, Any] = {
-        "event_id": str(uuid.uuid4()),
-        "type": event_type,
-        "job_id": job_id,
-        "timestamp_ms": int(time.time() * 1000), # epoch ms
-        #You can implement seq in the job-runner (single source of truth for that job) if you want it.
-        # "seq": <monotonic counter per job>, 
-        **kwargs
-    }
+    if current_seq == 0:
+        current_seq = int(kwargs.pop("_seq_start", 2))
 
+    ev = JobEventIn.make(
+        event_type=event_type,
+        job_id=job_id,
+        seq=current_seq,
+        producer=PRODUCER_NAME,
+        payload=dict(kwargs),
+    )
+    current_seq += 1
 
     try:
-        # If all events for a given job_id go to the same partition (same key),
-        # then Kafka will deliver them in the exact order they were appended
-        # to that partition.
-        # They can still be “out of time order” if the producer 
-        # itself emitted them out of order (different threads, retries, buffering,
-        # clock skew), but they will be in “producer append order.”
-        # This is important for correct event processing.
         meta = await producer.send_and_wait(
             TOPIC,
-            value=event,
+            value=ev.model_dump(),  # validated canonical envelope
             key=job_id.encode("utf-8"),
         )
-        # Verify per-job single partition
-        print(
-            f"sent job_id={job_id} type={event_type} "
-            f"partition={meta.partition} offset={meta.offset}",
-            flush=True,
+        logger.info(f"sent job_id={job_id} event_type={event_type} "
+            f"partition={meta.partition} offset={meta.offset}"
         )
     except Exception as e:
-        print("kafka send failed", e, flush=True)
+        logger.error(f"failed to send job event job_id={job_id} event_type={event_type}: {e}")
         raise
 
 
@@ -73,6 +89,7 @@ def load_config():
     with open(JOB_CONFIG) as f:
         return json.load(f)
 
+
 def build_model():
     import torch.nn as nn
     return nn.Sequential(
@@ -80,6 +97,7 @@ def build_model():
         nn.ReLU(),
         nn.Linear(64,10)
     )
+
 
 def build_data(batch_size):
     import torch.utils.data as data
@@ -91,21 +109,22 @@ def build_data(batch_size):
 async def run_job():
     cfg = load_config()
     jid = cfg.get("job_id", f"job-{int(time.time())}")
+    seq_start = int(cfg.get("seq_start", 2))
 
-    await emit("JOB_STARTED", jid)
+    await emit(EventType.JOB_STARTED, jid, _seq_start=seq_start)
     
     model = build_model()
-    await emit("JOB_LOG", jid, message="Building synthetic dataset")
+    await emit(EventType.JOB_LOG, jid, level="INFO", message="Building synthetic dataset")
     loader = build_data(cfg.get("batch_size",32))
     opt = torch.optim.Adam(model.parameters(), lr=cfg.get("lr",1e-3))
     epochs = cfg.get("epochs",1)
 
-    await emit("JOB_LOG", jid, message="Training started")
+    await emit(EventType.JOB_LOG, jid, level="INFO", message="Training started")
     try:
         for e in range(epochs):
             if terminate:
-                await emit("JOB_LOG", jid, message="Preempting job")
-                await emit("JOB_PREEMPTED", jid, epoch=e)
+                await emit(EventType.JOB_LOG, jid, level="WARNING", message="Preempting job")
+                await emit(EventType.JOB_PREEMPTED, jid, epoch=e)
                 return 0
 
             total = 0.0
@@ -118,17 +137,17 @@ async def run_job():
                 total += loss.item()
 
             avg = total / len(loader)
-            await emit("EPOCH_METRIC", jid, epoch=e, loss=avg)
-            await emit("JOB_LOG", jid, message=f"Epoch {e+1}/{epochs} completed, loss={avg:.4f}")
+            await emit(EventType.EPOCH_METRIC, jid, epoch=e + 1, metrics={"loss": avg})
+            await emit(EventType.JOB_LOG, jid, level="INFO", message=f"Epoch {e+1}/{epochs} completed, loss={avg:.4f}")
             await asyncio.sleep(0.1)
 
     except Exception as ex:
-        await emit("JOB_FAILED", jid, error=str(ex))
-        await emit("JOB_LOG", jid, message=f"Job failed: {ex}")
+        await emit(EventType.JOB_FAILED, jid, error={"message": str(ex), "type": type(ex).__name__})
+        await emit(EventType.JOB_LOG, jid, level="ERROR", message=f"Job failed: {ex}")
         return 1
 
-    await emit("JOB_COMPLETED", jid)
-    await emit("JOB_LOG", jid, message="Training completed successfully")
+    await emit(EventType.JOB_COMPLETED, jid)
+    await emit(EventType.JOB_LOG, jid, level="INFO", message="Training completed successfully")
     return 0
 
 

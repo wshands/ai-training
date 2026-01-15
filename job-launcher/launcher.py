@@ -1,7 +1,28 @@
-import os, asyncio, json
-from aiokafka import AIOKafkaConsumer
-from kubernetes import client, config
+import logging
+import os
+# Why put logging setup outside main()?
+# Anything imported before you call setup_logging() might emit logs (or configure logging itself).
+# Calling it at module import time ensures all logs (including early startup) use your format/level.
+# In containers, the entrypoint module is the natural “one-time per process” place.
+# force=True tells Python to remove any existing logging handlers and reconfigure
+# logging with your settings. This is useful in container apps because frameworks
+# (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
+def setup_logging() -> None:
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True
+    )
 
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+import os, asyncio, json, time, logging
+from aiokafka import AIOKafkaConsumer
+from kubernetes import client
+from kubernetes import config as k8s_config
 from kubernetes.config.config_exception import ConfigException
 
 
@@ -12,7 +33,7 @@ TRAINING_NAMESPACE = os.environ.get("TRAINING_NAMESPACE", "training-jobs")
 
 async def process_job_submitted(ev):
     job_id = ev["job_id"]
-    cfg = ev["config"]
+    cfg = (ev.get("payload") or {}).get("config") or ev.get("config")
     job_name = f"train-{job_id[:8]}"
     cm_name = f"{job_name}-config"
     v1 = client.CoreV1Api()
@@ -36,6 +57,7 @@ async def process_job_submitted(ev):
             client.V1EnvVar(name="KAFKA_BOOTSTRAP", value=KAFKA_BOOTSTRAP),
             client.V1EnvVar(name="KAFKA_TOPIC", value=KAFKA_TOPIC),
             client.V1EnvVar(name="JOB_CONFIG", value="/opt/job/config.json"),
+            client.V1EnvVar(name="JOB_ID", value=job_id),
         ],
     )
 
@@ -66,7 +88,16 @@ async def process_job_submitted(ev):
     except Exception as e:
         print("Job create error:", e, flush=True)
 
-async def consume():
+
+async def consume_forever():
+    while True:
+        try:
+            await consume_once()
+        except Exception:
+            logger.exception("Kafka consumer crashed; retrying in 3s")
+            await asyncio.sleep(3)
+
+async def consume_once():
     consumer = AIOKafkaConsumer(
         KAFKA_TOPIC,
         bootstrap_servers=KAFKA_BOOTSTRAP.split(","),
@@ -75,51 +106,40 @@ async def consume():
         auto_offset_reset="earliest",
     )
     await consumer.start()
-    print("Job launcher consumer started", flush=True)
+    logger.info("Job launcher consumer started")
     try:
         async for msg in consumer:
             ev = msg.value
-            if ev.get("type") == "JOB_SUBMITTED":
+            if ev.get("event_type") == "JOB_SUBMITTED":
                 await process_job_submitted(ev)
     finally:
         await consumer.stop()
 
-def main():
-    print("Job Launcher starting...")
 
-    # Are we running inside Kubernetes?
-    if os.getenv("KUBERNETES_SERVICE_HOST"):
-        print("Running inside Kubernetes: loading in-cluster config")
+def main():
+    logger.info("Job Launcher starting... pid=%s", os.getpid())
+
+    in_cluster = bool(os.getenv("KUBERNETES_SERVICE_HOST"))
+    if in_cluster:
+        logger.info("Running inside Kubernetes: loading in-cluster config")
         try:
-            config.load_incluster_config()
-            return run_job_launcher(no_k8s=False)
-        except Exception as e:
-            print("Failed to load in-cluster config:", e)
-
-    # Otherwise, assume local dev mode
-    try:
-        print("Loading local kubeconfig...")
-        config.load_kube_config()
-        return run_job_launcher(no_k8s=False)
-    except ConfigException:
-        print("No kubeconfig. Running with NO Kubernetes API.")
-        return run_job_launcher(no_k8s=True)
-
-
-def run_job_launcher(no_k8s=False):
-    print("Job launcher started. Kubernetes enabled =", not no_k8s)
-    asyncio.run(consume())
-
-
-
-
-"""
-def main():
-    if os.getenv("KUBERNETES_SERVICE_HOST"):
-        config.load_incluster_config()
+            k8s_config.load_incluster_config()
+        except Exception:
+            # FULL traceback is critical here
+            logger.exception("FATAL: failed to load in-cluster config")
+            raise  # crash so you fix the real issue
+        no_k8s = False
     else:
-        config.load_kube_config()
-    asyncio.run(consume())
-"""
+        logger.info("Local mode: loading kubeconfig")
+        try:
+            k8s_config.load_kube_config()
+            no_k8s = False
+        except ConfigException:
+            logger.warning("No kubeconfig. Running with NO Kubernetes API.")
+            no_k8s = True
+
+    logger.info("Job launcher started. Kubernetes enabled = %s", not no_k8s)
+    asyncio.run(consume_forever())
+
 if __name__ == "__main__":
     main()

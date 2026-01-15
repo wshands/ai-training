@@ -1,8 +1,15 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-COPY . /app
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+
+COPY common /app/common
+
+COPY control-plane /app/control-plane
+
+RUN pip install --no-cache-dir -r /app/control-plane/requirements.txt
+
+ENV PYTHONPATH=/app:/app/control-plane
 
 # app on 8000, debug on 5678
 EXPOSE 8000 5678

@@ -34,15 +34,14 @@ To build the (data plane) job launcher and training job in minikube:
 ```bash
 eval $(minikube docker-env)
 docker build -t ai-platform-job-launcher:latest ./job-launcher
-docker build -t ai-platform-training-job:latest ./training-job
+docker build -f training-job/Dockerfile -t ai-platform-training-job:latest .
 
 kubectl get pods  -n training-jobs
-kubectl delete pod <pod id for job launcher>  -n training-jobs
 ```
 
 To install the data plane with Helm:
 ```bash
- helm upgrade --install ai-platform-data-plane ./helm-data-plane -n training-jobs
+  helm upgrade --install ai-platform-data-plane ./helm-data-plane -n training-jobs --create-namespace
 ```
 
 To examine the job information in the DB:

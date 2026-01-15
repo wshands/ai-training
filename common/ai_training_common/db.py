@@ -1,7 +1,7 @@
 import asyncpg
 import json
 import time
-from .config import POSTGRES_DSN
+from common.ai_training_common.config import POSTGRES_DSN
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -30,9 +30,14 @@ async def init_db():
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_events (
                 id BIGSERIAL PRIMARY KEY,
+                event_id TEXT NOT NULL UNIQUE,
                 job_id TEXT NOT NULL,
-                event_time TIMESTAMP,
-                payload JSONB
+                seq BIGINT,
+                event_type TEXT NOT NULL,
+                producer TEXT,
+                schema_version INT,
+                event_time TIMESTAMP NOT NULL DEFAULT now(),
+                payload JSONB NOT NULL DEFAULT '{}'::jsonb
             );
             """)
 
@@ -41,17 +46,30 @@ async def init_db():
             ON job_events(job_id, id);
             """)
 
+            # (Recommended) enforce per-job seq uniqueness once seq is populated for all producers
+            await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_job_events_job_id_seq
+            ON job_events(job_id, seq)
+            WHERE seq IS NOT NULL;
+            """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_job_events_job_id_seq
+            ON job_events(job_id, seq);
+            """)
+
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_state (
             job_id TEXT PRIMARY KEY,
             last_state TEXT NOT NULL DEFAULT 'SUBMITTED',
             last_event JSONB NOT NULL DEFAULT '{}'::jsonb,
+            last_event_id TEXT,
+            last_seq BIGINT,
             updated_at TIMESTAMP NOT NULL DEFAULT now()
             );
+
             """)
 
-            # ✅ Removed the duplicate CREATE INDEX for job_events
-            # If you want an index on job_state, do this instead:
             await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_job_state_updated_at_desc
             ON job_state(updated_at DESC);
@@ -100,10 +118,7 @@ async def fetch_jobs(limit: int = 100) -> List[asyncpg.Record]:
     return rows
 
 
-async def fetch_job(job_id: str) -> Optional[asyncpg.Record]:
-    global pool
-    if pool is None:
-        await init_db()
+async def fetch_job(job_id: str):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -113,13 +128,15 @@ async def fetch_job(job_id: str) -> Optional[asyncpg.Record]:
               j.submitted_at,
               j.updated_at,
               j.config,
-              COALESCE(j.status, 'UNKNOWN') AS status
+              COALESCE(js.last_state, 'UNKNOWN') AS status
             FROM jobs AS j
+            LEFT JOIN job_state AS js
+              ON js.job_id = j.job_id
             WHERE j.job_id = $1
             """,
             job_id,
         )
-    return row
+        return row
 
 
 async def fetch_job_events_since(
@@ -135,8 +152,6 @@ async def fetch_job_events_since(
       job_id TEXT,
       event_time TIMESTAMP,
       payload JSONB
-
-    We assume 'event_type' lives inside payload->>'event_type'.
     """
     global pool
     if pool is None:
@@ -145,17 +160,14 @@ async def fetch_job_events_since(
         rows = await conn.fetch(
             """
             SELECT
-              id,
-              job_id,
-              event_time,
-              payload,
-              COALESCE(
-                payload->>'event_type',  -- if you ever add this
-                payload->>'type'         -- current data
-              ) AS event_type
+            id,
+            job_id,
+            event_time,
+            event_type,
+            payload
             FROM job_events
             WHERE job_id = $1
-              AND id > $2
+            AND id > $2
             ORDER BY id ASC
             LIMIT $3
             """,
