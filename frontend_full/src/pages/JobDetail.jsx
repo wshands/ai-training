@@ -25,44 +25,40 @@ const JobDetail = () => {
   const [metrics, setMetrics] = useState([]);
 
 
-
 const parseHistoryEvents = (events) => {
   const logs = [];
   const metrics = [];
   let lastStatus = null;
 
-  for (const ev of events) {
-    const p = ev.payload || {};
-    const t = (p.type || '').toUpperCase();
+  for (const ev of events || []) {
+    const t = (ev.event_type || "").toUpperCase();
+    const d = ev.data || {};
 
-    if (t === 'JOB_LOG') {
-      if (p.message) logs.push(p.message);
+    if (t === "JOB_LOG") {
+      if (d.message) logs.push(d.message);
     }
 
-    if (t === 'EPOCH_METRIC' || t === 'JOB_METRIC') {
-      // Normalize to chart format expected by your <LineChart dataKey="loss" dataKey="step">
-      // You currently have epoch + loss; convert epoch -> step
-      const step = p.step ?? p.epoch ?? null;
-      if (step !== null && p.loss !== undefined) {
-        metrics.push({ step, loss: p.loss, ...p });
+    if (t === "EPOCH_METRIC" || t === "JOB_METRIC") {
+      const step = d.step ?? d.epoch ?? null;
+      const loss = d.loss ?? d.metrics?.loss; // <-- your data has metrics.loss
+      if (step !== null && loss !== undefined) {
+        metrics.push({ step, loss, ...d });
       }
     }
 
-    if (t.startsWith('JOB_')) {
-      // Use a stable set of statuses for badge
-      if (t === 'JOB_COMPLETED') lastStatus = 'COMPLETED';
-      else if (t === 'JOB_FAILED') lastStatus = 'FAILED';
-      else if (t === 'JOB_RUNNING' || t === 'JOB_STARTED') lastStatus = 'RUNNING';
-      else if (t === 'JOB_SUBMITTED') lastStatus = 'SUBMITTED';
-      else lastStatus = t.replace('JOB_', '');
+    if (t.startsWith("JOB_")) {
+      if (t === "JOB_COMPLETED") lastStatus = "COMPLETED";
+      else if (t === "JOB_FAILED") lastStatus = "FAILED";
+      else if (t === "JOB_STARTED" || t === "JOB_RUNNING") lastStatus = "RUNNING";
+      else if (t === "JOB_SUBMITTED") lastStatus = "SUBMITTED";
+      else lastStatus = t.replace("JOB_", "");
     }
   }
 
-  // Ensure metrics are in order
   metrics.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
-
   return { logs, metrics, lastStatus };
 };
+
 
   //  This ensures:
   // loading starts true
@@ -117,33 +113,66 @@ const parseHistoryEvents = (events) => {
 useWebSocket(
   wsUrl,
   (msg) => {
-    console.log("JobDetail received ws msg type=%s value=%r", msg.type, msg);
+    console.log("JobDetail received ws msg", msg);
     const t = (msg?.type || '').toLowerCase();
 
-    // UI-friendly messages
+    // UI-friendly messages (preferred)
     if (t === 'log') {
       setLogs((prev) => [...prev, msg.message].slice(-500));
       return;
     }
+
     if (t === 'metric') {
       const m = msg.metric || {};
-      const step = m.step ?? m.epoch;
-      setMetrics((prev) => [...prev, { ...m, step }].sort((a,b)=> (a.step??0)-(b.step??0)));
-      return;
-    }
-    if (t === 'status') {
-      setJob((prev) => (prev ? { ...prev, status: msg.status } : { id: jobId, status: msg.status, config: {} }));
+      const step = m.step ?? m.epoch ?? m.metrics?.step;
+      const loss = m.loss ?? m.metrics?.loss;
+
+      if (step != null && loss !== undefined) {
+        setMetrics((prev) => {
+          const next = [...prev, { ...m, step, loss }];
+          next.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
+          return next;
+        });
+      }
       return;
     }
 
-    // If backend ever sends raw events, support them too
-    const rawType = (msg?.event_type || msg?.payload?.type || msg?.type || '').toUpperCase();
-    if (rawType === 'JOB_LOG' && msg.payload?.message) {
-      setLogs((prev) => [...prev, msg.payload.message].slice(-500));
+    if (t === 'status') {
+      setJob((prev) =>
+        prev
+          ? { ...prev, status: msg.status }
+          : { id: jobId, status: msg.status, config: {} }
+      );
+      return;
     }
-    if ((rawType === 'EPOCH_METRIC' || rawType === 'JOB_METRIC') && msg.payload?.loss !== undefined) {
-      const step = msg.payload.step ?? msg.payload.epoch;
-      setMetrics((prev) => [...prev, { ...msg.payload, step }].sort((a,b)=> (a.step??0)-(b.step??0)));
+
+    // Raw events fallback (new structure: event_type + data)
+    const rawType = (msg?.event_type || msg?.type || '').toUpperCase();
+    const d = msg?.data || msg?.payload || {}; // support both new + old
+
+    if (rawType === 'JOB_LOG' && d?.message) {
+      setLogs((prev) => [...prev, d.message].slice(-500));
+      return;
+    }
+
+    if (rawType === 'EPOCH_METRIC' || rawType === 'JOB_METRIC') {
+      const step = d.step ?? d.epoch ?? null;
+      const loss = d.loss ?? d.metrics?.loss;
+
+      if (step !== null && loss !== undefined) {
+        setMetrics((prev) => {
+          const next = [...prev, { step, loss, ...d }];
+          next.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
+          return next;
+        });
+      }
+      return;
+    }
+
+    if (rawType.startsWith('JOB_')) {
+      // if you want, map job states here too
+      const status = msg.state || rawType.replace('JOB_', '');
+      setJob((prev) => (prev ? { ...prev, status } : { id: jobId, status, config: {} }));
     }
   },
   { reconnectInterval: 2000, maxReconnectAttempts: 10 }

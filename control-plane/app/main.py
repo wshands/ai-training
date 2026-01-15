@@ -34,21 +34,23 @@ from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
 #from fastapi import WebSocket
-from .config import (
+from common.ai_training_common.config import (
     TRAINING_NAMESPACE,
     TRAINING_IMAGE,
     CUSTOMER_KUBECONFIG,
     REDIS_URL,
 )
 from .kafka_bus import init_kafka, send_event
-from .db import (
+from common.ai_training_common.db import (
     init_db,
     persist_initial_job,
     fetch_jobs,
     fetch_job_events_since,
+    fetch_job,
 )
-# plus the models you defined above:
-# JobState, TrainJobRequest, JobSummary, JobDetail, JobEvent, DeploymentSummary
+from common.ai_training_common.events import JobEventIn, EventType
+
+
 class JobState(str, Enum):
     SUBMITTED = "SUBMITTED"
     PENDING = "PENDING"
@@ -70,18 +72,6 @@ class JobSummary(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     model_id: Optional[str] = None
     dataset_id: Optional[str] = None
-
-class JobEvent(BaseModel):
-    id: int
-    job_id: str
-    event_time: Optional[datetime] = None
-    event_type: str
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class JobDetail(JobSummary):
-    events: List[JobEvent] = Field(default_factory=list)
-
 
 app = FastAPI(title="AI Platform Control Plane")
 
@@ -152,6 +142,7 @@ async def submit_training_job(req: TrainJobRequest):
         "distributed": req.distributed,
         "extra": req.extra_config or {},
         "submitted_at": int(time.time()),
+        "seq_start": 2,
     }
 
     try:
@@ -159,12 +150,14 @@ async def submit_training_job(req: TrainJobRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
-    event = {
-        "type": "JOB_SUBMITTED",
-        "job_id": job_id,
-        "timestamp": int(time.time()),
-        "config": job_cfg,
-    }
+    event = JobEventIn(
+        event_type=EventType.JOB_SUBMITTED,
+        job_id=job_id,
+        seq=1,
+        producer="control-plane",
+        payload={"config": job_cfg},
+    )
+
     try:
         await send_event(event)
     except Exception as e:
@@ -195,79 +188,21 @@ async def list_jobs(limit: int = 100):
 
 @app.get("/jobs/{job_id}", response_model=JobSummary)
 async def get_job(job_id: str) -> JobSummary:
-    # Fetch all events for this job (or up to a sane limit)
-    events = await fetch_job_events_since(job_id=job_id, last_id=0, limit=5000)
-
-    if not events:
+    row = await fetch_job(job_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Initialize derived fields
-    created_at: datetime = events[0]["event_time"]
-    submitted_at: datetime | None = None
-    updated_at: datetime | None = events[-1]["event_time"] if events else None
-
-    status: str = "UNKNOWN"
-    config: dict[str, Any] = {}
-    model_id: str | None = None
-    dataset_id: str | None = None
-
-    # Walk events in order and derive state
-    for ev in events:
-        payload = ev["payload"]
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-
-        # event_type comes from your SQL:
-        #   COALESCE(payload->>'event_type', payload->>'type') AS event_type
-        event_type = (
-            ev.get("event_type")
-            or payload.get("event_type")
-            or payload.get("type")
-            or "UNKNOWN"
-        )
-
-        ts: datetime = ev["event_time"]
-
-        if event_type == "JOB_SUBMITTED":
-            if submitted_at is None:
-                submitted_at = ts
-
-            # Config is stored in payload["config"] for JOB_SUBMITTED
-            cfg = payload.get("config") or {}
-            # Merge into config (later events could override if you want)
-            config = {**config, **cfg}
-            model_id = config.get("model_id", model_id)
-            dataset_id = config.get("dataset_id", dataset_id)
-
-            # Reasonable default status if nothing else comes later
-            status = "SUBMITTED"
-
-        elif event_type in ("JOB_STARTED", "JOB_RUNNING"):
-            status = "RUNNING"
-
-        elif event_type == "JOB_COMPLETED":
-            status = "SUCCEEDED"
-
-        elif event_type == "JOB_FAILED":
-            status = "FAILED"
-
-        # If you want EPOCH_METRIC etc. to affect status, handle here
-        # elif event_type == "EPOCH_METRIC":
-        #     pass
-
-    # Fall back if submitted_at was never set
-    if submitted_at is None:
-        submitted_at = created_at
-
+    cfg = row["config"]
+    cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
     return JobSummary(
-        job_id=job_id,
-        status=status,
-        created_at=created_at,
-        submitted_at=submitted_at,
-        updated_at=updated_at,
-        config=config,
-        model_id=model_id,
-        dataset_id=dataset_id,
+        job_id=row["job_id"],
+        status=(row["status"] or "SUBMITTED"),
+        created_at=row["created_at"],
+        submitted_at=row.get("submitted_at"),
+        updated_at=row.get("updated_at"),
+        config=cfg_obj,
+        model_id=cfg_obj.get("model_id"),
+        dataset_id=cfg_obj.get("dataset_id"),
     )
 
 
@@ -276,7 +211,6 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
     await websocket.accept()
 
     # Each WS gets its own pubsub subscription
-
     if redis_client is None:
         await websocket.close(code=1011)
         return
@@ -287,7 +221,6 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
     await pubsub.subscribe(channel)
 
     try:
-        # pubsub.listen() yields dicts: {"type", "channel", "data", ...}
         async for message in pubsub.listen():
             if message["type"] != "message":
                 continue
@@ -299,36 +232,19 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
                 # If some old publisher sent non-JSON data
                 continue
 
-            #event_type = event.get("event_type", "")
-
             logger.info("job_event_stream event type=%s value=%r", type(event), event)
-            #payload = json.loads(event["payload"]) if isinstance(event["payload"], str) else (event["payload"] or {})
-            #event_type = event["event_type"] or payload.get("event_type") or payload.get("type") or "UNKNOWN"
-
-            payload = event
-            event_type = event["type"] or "UNKNOWN"
-
-            # Map raw events into frontend-friendly messages.
-            #
-            # You can shape this however you like, but one common mapping is:
-            # - JOB_LOG        -> {type: "log", message: "..."}
-            # - JOB_METRIC     -> {type: "metric", metric: {...}}
-            # - JOB_* state    -> {type: "status", status: "RUNNING"/...}
-            msg: dict[str, Any]
+            event_type = (event.get("event_type") or "UNKNOWN").upper()
+            data = event.get("data") or {}
+            state = event.get("state") or event.get("_state")  # if you still have older publishers
 
             if event_type == "JOB_LOG":
-                msg = {"type": "log", "message": payload.get("message", "")}
+                msg = {"type": "log", "message": data.get("message", "")}
             elif event_type in ("JOB_METRIC", "EPOCH_METRIC"):
-                msg = {"type": "metric", "metric": payload}
-                    #msg = {"type": "metric", "metric": payload.get("metric", {})}
+                msg = {"type": "metric", "metric": data}
             elif event_type.startswith("JOB_"):
-                msg = {"type": "status", "status": payload.get("_state") or payload.get("state") or event_type}
+                msg = {"type": "status", "status": state or event_type}
             else:
-                msg = {
-                    "type": "raw_event",
-                    "event_type": event_type,
-                    "payload": payload,
-                }
+                msg = {"type": "raw_event", "event_type": event_type, "data": data, "event": event}
 
             logger.info("job_event_stream msg type=%s value=%r", type(msg), msg)
             await websocket.send_json(msg)
@@ -358,15 +274,16 @@ async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
     rows = await fetch_job_events_since(job_id=job_id, last_id=since_id, limit=limit)
     out = []
     for r in rows:
-        payload = r["payload"]
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        event_type = r.get("event_type") or payload.get("event_type") or payload.get("type") or "UNKNOWN"
+        data = r["payload"]
+        if isinstance(data, str):
+            data = json.loads(data)
+
         out.append({
             "id": r["id"],
             "job_id": r["job_id"],
             "event_time": r["event_time"].isoformat() if r.get("event_time") else None,
-            "event_type": event_type,
-            "payload": payload or {},
+            "event_type": r["event_type"],   # <- canonical from column
+            "data": data or {},              # <- details only
         })
     return out
+

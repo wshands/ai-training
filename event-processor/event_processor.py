@@ -1,3 +1,7 @@
+# -----------------------
+# Logging
+# -----------------------
+
 import logging
 import os
 # Why put logging setup outside main()?
@@ -20,33 +24,56 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-
 import asyncio
-import asyncpg
 import json
+import logging
 import os
 import random
-import redis.asyncio as redis
+import uuid
+from datetime import datetime
+from pydantic import ValidationError
+from typing import Any, Dict, Literal, Mapping, Optional, Tuple
 
+import asyncpg
+import redis.asyncio as redis
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import (
-    UnknownTopicOrPartitionError,
     GroupCoordinatorNotAvailableError,
     KafkaConnectionError,
     NoBrokersAvailable,
+    UnknownTopicOrPartitionError,
 )
-from datetime import datetime
-from state_machine import apply_event, JobState
-from typing import Any, Mapping, Optional, Literal
 
+from common.ai_training_common.db import init_db
+from state_machine import JobState, apply_event
+from common.ai_training_common.events import JobEventIn, JobEventOut
+
+
+# -----------------------
+# Config
+# -----------------------
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
 IN_TOPIC = os.environ.get("KAFKA_TOPIC", "job-events")
-POSTGRES_DSN = os.environ.get("POSTGRES_DSN", "postgresql://postgres:postgres@postgres:5432/controlplane")
-REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")  # or wherever your Redis lives
+POSTGRES_DSN = os.environ.get(
+    "POSTGRES_DSN",
+    "postgresql://postgres:postgres@postgres:5432/controlplane",
+)
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
+MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
 
-async def wait_for_postgres(conn, timeout_s: int = 60):
+# -----------------------
+# Utilities
+# -----------------------
+
+def _ts_to_pg_seconds(ts: Optional[int | float]) -> Optional[float]:
+    if ts is None:
+        return None
+    ts_f = float(ts)
+    return ts_f / 1000.0 if ts_f >= 1_000_000_000_000 else ts_f
+
+async def wait_for_postgres(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
     deadline = asyncio.get_event_loop().time() + timeout_s
     while True:
         try:
@@ -57,19 +84,22 @@ async def wait_for_postgres(conn, timeout_s: int = 60):
                 raise
             await asyncio.sleep(1)
 
-async def wait_for_schema(conn, timeout_s: int = 60):
+async def wait_for_schema(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
     deadline = asyncio.get_event_loop().time() + timeout_s
+    needed = {"jobs", "job_events", "job_state"}
+
     while True:
         rows = await conn.fetch(
             """
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema='public'
-              AND table_name IN ('jobs', 'job_events', 'job_state')
-            """
+              AND table_name = ANY($1::text[])
+            """,
+            list(needed),
         )
         have = {r["table_name"] for r in rows}
-        if {"jobs", "job_events", "job_state"}.issubset(have):
+        if needed.issubset(have):
             return
 
         if asyncio.get_event_loop().time() > deadline:
@@ -77,24 +107,6 @@ async def wait_for_schema(conn, timeout_s: int = 60):
 
         await asyncio.sleep(1)
 
-
-
-
-MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
-
-
-def _ts_to_pg_seconds(ts: Optional[int | float]) -> Optional[float]:
-    """
-    Convert epoch timestamps to seconds for Postgres to_timestamp().
-    Accepts seconds or milliseconds.
-    """
-    if ts is None:
-        return None
-    ts_f = float(ts)
-    # Heuristic: >= 1e12 is almost certainly milliseconds
-    if ts_f >= 1_000_000_000_000:
-        return ts_f / 1000.0
-    return ts_f
 
 async def apply_job_event_to_jobs_table(
     conn,
@@ -246,89 +258,93 @@ async def apply_job_event_to_jobs_table(
     raise ValueError(f"Unknown on_missing_job_row policy: {on_missing_job_row}")
 
 
-def _normalize_event_type(ev: dict) -> str:
-    return ev.get("event_type") or ev.get("type") or "UNKNOWN"
-
-
-async def process_event(conn, ev) -> dict:
+async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[JobEventOut]:
     """
-    Persists the event, updates job_state/jobs, and returns a canonical
-    envelope suitable for Redis/WebSocket fan-out.
+    Persist the event (idempotent on event_id), update job_state/jobs, and return
+    a canonical object for Redis/WebSocket fan-out. Returns None if duplicate.
     """
-    ws_event: dict | None = None
+    job_id = ev.job_id
+    event_type = ev.event_type.value
+    event_id = ev.event_id
+    seq = ev.seq
+    producer = ev.producer
+    schema_version = ev.schema_version
+    ts_ms = ev.ts_ms
+    ts_sec = _ts_to_pg_seconds(ts_ms)
+
+    details = ev.payload  # DETAILS ONLY
 
     async with conn.transaction():
-        # Normalize timestamps: accept either seconds ("timestamp") or milliseconds ("timestamp_ms")
-        ts_raw = ev.get("timestamp")
-        if ts_raw is None:
-            ts_raw = ev.get("timestamp_ms")
-        ts_sec = _ts_to_pg_seconds(ts_raw)
-
-        # 1) Insert job_event + capture id/time for ordering
         inserted = await conn.fetchrow(
             """
-            INSERT INTO job_events(job_id, event_time, payload)
-            VALUES ($1, COALESCE(to_timestamp($2), now()), $3::jsonb)
+            INSERT INTO job_events(event_id, job_id, seq, event_type, producer, schema_version, event_time, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE(to_timestamp($7), now()), $8::jsonb)
+            ON CONFLICT (event_id) DO NOTHING
             RETURNING id, job_id, event_time
             """,
-            ev["job_id"],
+            event_id,
+            job_id,
+            seq,
+            event_type,
+            producer,
+            schema_version,
             ts_sec,
-            json.dumps(ev),
+            json.dumps(details),
         )
+        if inserted is None:
+            return None
 
-        event_id = inserted["id"]
-        job_id = inserted["job_id"]
+        db_id = int(inserted["id"])
         event_time = inserted["event_time"]
 
-        # 2) Load current state
         row = await conn.fetchrow(
             "SELECT last_state FROM job_state WHERE job_id = $1",
             job_id,
         )
         current_state = JobState(row["last_state"]) if row and row["last_state"] else None
-
-        # 3) Apply FSM transition using normalized event type
-        event_type = _normalize_event_type(ev)
         new_state = apply_event(current_state, event_type)
 
-        # 4) Upsert job_state
+        # Store details only in last_event (recommended; keeps job_state small and consistent)
         await conn.execute(
             """
-            INSERT INTO job_state(job_id, last_state, last_event, updated_at)
-            VALUES($1, $2, $3::jsonb, now())
+            INSERT INTO job_state(job_id, last_state, last_event, last_event_id, last_seq, updated_at)
+            VALUES($1, $2, $3::jsonb, $4, $5, now())
             ON CONFLICT(job_id) DO UPDATE
               SET last_state = EXCLUDED.last_state,
                   last_event = EXCLUDED.last_event,
+                  last_event_id = EXCLUDED.last_event_id,
+                  last_seq = EXCLUDED.last_seq,
                   updated_at = now()
             """,
             job_id,
             new_state.value,
-            json.dumps(ev),
+            json.dumps(details),
+            event_id,
+            seq,
         )
 
-        # 5) Update jobs table if applicable
-        #await upsert_job_row(conn, ev, new_state)
+        cfg = details.get("config") if event_type == "JOB_SUBMITTED" else None
         await apply_job_event_to_jobs_table(
             conn,
             job_id=job_id,
             ev_type=event_type,
-            ts=ts_raw,
-            config=ev.get("config"),
+            ts=ts_ms,
+            config=cfg,
             on_missing_job_row="warn",
         )
 
-        # Build canonical envelope (publish AFTER commit, outside txn)
-        ws_event = {
-            "id": int(event_id),
-            "job_id": job_id,
-            "event_time": event_time.isoformat() if isinstance(event_time, datetime) else str(event_time),
-            "event_type": event_type,
-            "payload": ev,             # original event dict (contains message/loss/etc.)
-            "state": new_state.value,  # handy for UI status updates
-        }
-
-    # Return after commit
-    return ws_event  # type: ignore
+        return JobEventOut(
+            id=db_id,
+            job_id=job_id,
+            event_time=event_time.isoformat() if isinstance(event_time, datetime) else str(event_time),
+            event_type=event_type,
+            seq=int(seq or 0),
+            ts_ms=int(ts_ms or 0),
+            producer=str(producer or "unknown"),
+            schema_version=int(schema_version or 1),
+            data=details or {},
+            state=new_state.value,
+        )
 
 
 
@@ -354,7 +370,13 @@ async def start_consumer_with_retry(consumer, tries: int = 60) -> None:
     raise RuntimeError("Kafka never became ready (topic/coordinator) after retries")
 
 
-async def main():
+async def publish_ws_event(r: redis.Redis, out: JobEventOut) -> None:
+    channel = f"job_events:{out.job_id}"
+    await r.publish(channel, out.model_dump_json())
+
+
+async def main() -> None:
+    await init_db()
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
     conn = await asyncpg.connect(POSTGRES_DSN)
@@ -366,31 +388,37 @@ async def main():
         bootstrap_servers=KAFKA_BOOTSTRAP,
         group_id="event-processor",
         value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        enable_auto_commit=False,   # <- recommended
+        enable_auto_commit=False,
+        max_poll_interval_ms=15 * 60 * 1000,
+        max_poll_records=10,
     )
 
-    await start_consumer_with_retry(consumer)  # <- key change
+    await start_consumer_with_retry(consumer)
     try:
         async for msg in consumer:
-            ev = msg.value
-            if not ev or "job_id" not in ev:
+            try:
+                ev = JobEventIn.model_validate(msg.value)
+            except ValidationError as e:
+                logger.warning("Dropping invalid event: %s value=%r", e, msg.value)
+                await consumer.commit()
+                continue
+
+            if not ev.job_id:
                 await consumer.commit()
                 continue
 
             ws_event = await process_event(conn, ev)
-            channel = f"job_events:{ws_event['job_id']}"
-            # publish the raw event payload (the thing that actually has "type", "message", "loss", etc.)
-            payload = ws_event["payload"]
-            payload["_id"] = ws_event["id"]
-            payload["_state"] = ws_event["state"]
-            await r.publish(channel, json.dumps(payload))
+            if ws_event is not None:
+                await publish_ws_event(r, ws_event)
 
-            await consumer.commit()  # <- commit only after DB + redis
+            try:
+                await consumer.commit()
+            except Exception as e:
+                logger.warning("Commit failed (rebalance?): %s", e)
     finally:
         await consumer.stop()
         await r.aclose()
         await conn.close()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
