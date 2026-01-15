@@ -36,6 +36,10 @@ eval $(minikube docker-env)
 docker build -t ai-platform-job-launcher:latest ./job-launcher
 docker build -f training-job/Dockerfile -t ai-platform-training-job:latest .
 
+kubectl get jobs,pods -n training-jobs -o name \                 
+  | grep '^.*/train-' \      
+  | xargs kubectl delete -n training-jobs
+
 kubectl get pods  -n training-jobs
 ```
 

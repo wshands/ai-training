@@ -45,7 +45,7 @@ from aiokafka.errors import (
 )
 
 from common.ai_training_common.db import init_db
-from state_machine import JobState, apply_event
+from common.ai_training_common.state_machine import JobState, apply_event
 from common.ai_training_common.events import JobEventIn, JobEventOut
 
 

@@ -30,7 +30,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from kubernetes import client, config as k8s_config
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing import Any, Dict, List, Optional
 
 #from fastapi import WebSocket
@@ -46,9 +46,11 @@ from common.ai_training_common.db import (
     persist_initial_job,
     fetch_jobs,
     fetch_job_events_since,
+    fetch_job_event_types_until,
     fetch_job,
 )
-from common.ai_training_common.events import JobEventIn, EventType
+from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
+from common.ai_training_common.state_machine import JobState as EventJobState, apply_event
 
 
 class JobState(str, Enum):
@@ -232,22 +234,12 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
                 # If some old publisher sent non-JSON data
                 continue
 
-            logger.info("job_event_stream event type=%s value=%r", type(event), event)
-            event_type = (event.get("event_type") or "UNKNOWN").upper()
-            data = event.get("data") or {}
-            state = event.get("state") or event.get("_state")  # if you still have older publishers
+            try:
+                event_out = JobEventOut.model_validate(event)
+            except ValidationError:
+                continue
 
-            if event_type == "JOB_LOG":
-                msg = {"type": "log", "message": data.get("message", "")}
-            elif event_type in ("JOB_METRIC", "EPOCH_METRIC"):
-                msg = {"type": "metric", "metric": data}
-            elif event_type.startswith("JOB_"):
-                msg = {"type": "status", "status": state or event_type}
-            else:
-                msg = {"type": "raw_event", "event_type": event_type, "data": data, "event": event}
-
-            logger.info("job_event_stream msg type=%s value=%r", type(msg), msg)
-            await websocket.send_json(msg)
+            await websocket.send_json(event_out.model_dump())
 
     except WebSocketDisconnect:
         # client disconnected
@@ -271,19 +263,38 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
 
 @app.get("/jobs/{job_id}/events")
 async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
+    prior_state: EventJobState | None = None
+    if since_id > 0:
+        prior_types = await fetch_job_event_types_until(job_id=job_id, up_to_id=since_id)
+        for event_type in prior_types:
+            prior_state = apply_event(prior_state, event_type)
+
     rows = await fetch_job_events_since(job_id=job_id, last_id=since_id, limit=limit)
     out = []
+    state = prior_state
     for r in rows:
         data = r["payload"]
         if isinstance(data, str):
             data = json.loads(data)
 
-        out.append({
-            "id": r["id"],
-            "job_id": r["job_id"],
-            "event_time": r["event_time"].isoformat() if r.get("event_time") else None,
-            "event_type": r["event_type"],   # <- canonical from column
-            "data": data or {},              # <- details only
-        })
-    return out
+        event_type = r["event_type"]
+        state = apply_event(state, event_type)
+        event_time = r["event_time"]
+        event_time_iso = event_time.isoformat() if event_time else ""
+        ts_ms = int(event_time.timestamp() * 1000) if event_time else 0
 
+        out.append(
+            JobEventOut(
+                id=int(r["id"]),
+                job_id=r["job_id"],
+                event_time=event_time_iso or "",
+                event_type=event_type,
+                seq=int(r["seq"] or 0),
+                ts_ms=ts_ms,
+                producer=r["producer"] or "unknown",
+                schema_version=int(r["schema_version"] or 1),
+                data=data or {},
+                state=state.value,
+            ).model_dump()
+        )
+    return out

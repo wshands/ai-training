@@ -33,6 +33,7 @@ const parseHistoryEvents = (events) => {
   for (const ev of events || []) {
     const t = (ev.event_type || "").toUpperCase();
     const d = ev.data || {};
+    const state = ev.state || null;
 
     if (t === "JOB_LOG") {
       if (d.message) logs.push(d.message);
@@ -46,7 +47,9 @@ const parseHistoryEvents = (events) => {
       }
     }
 
-    if (t.startsWith("JOB_")) {
+    if (state) {
+      lastStatus = state;
+    } else if (t.startsWith("JOB_")) {
       if (t === "JOB_COMPLETED") lastStatus = "COMPLETED";
       else if (t === "JOB_FAILED") lastStatus = "FAILED";
       else if (t === "JOB_STARTED" || t === "JOB_RUNNING") lastStatus = "RUNNING";
@@ -110,52 +113,16 @@ const parseHistoryEvents = (events) => {
 
   const wsUrl = `${WS_BASE_URL}/ws/jobs/${jobId}`;
 
-useWebSocket(
-  wsUrl,
-  (msg) => {
-    console.log("JobDetail received ws msg", msg);
-    const t = (msg?.type || '').toLowerCase();
+  const applyEvent = (ev) => {
+    const t = (ev?.event_type || '').toUpperCase();
+    const d = ev?.data || {};
 
-    // UI-friendly messages (preferred)
-    if (t === 'log') {
-      setLogs((prev) => [...prev, msg.message].slice(-500));
-      return;
-    }
-
-    if (t === 'metric') {
-      const m = msg.metric || {};
-      const step = m.step ?? m.epoch ?? m.metrics?.step;
-      const loss = m.loss ?? m.metrics?.loss;
-
-      if (step != null && loss !== undefined) {
-        setMetrics((prev) => {
-          const next = [...prev, { ...m, step, loss }];
-          next.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
-          return next;
-        });
-      }
-      return;
-    }
-
-    if (t === 'status') {
-      setJob((prev) =>
-        prev
-          ? { ...prev, status: msg.status }
-          : { id: jobId, status: msg.status, config: {} }
-      );
-      return;
-    }
-
-    // Raw events fallback (new structure: event_type + data)
-    const rawType = (msg?.event_type || msg?.type || '').toUpperCase();
-    const d = msg?.data || msg?.payload || {}; // support both new + old
-
-    if (rawType === 'JOB_LOG' && d?.message) {
+    if (t === 'JOB_LOG' && d.message) {
       setLogs((prev) => [...prev, d.message].slice(-500));
       return;
     }
 
-    if (rawType === 'EPOCH_METRIC' || rawType === 'JOB_METRIC') {
+    if (t === 'EPOCH_METRIC' || t === 'JOB_METRIC') {
       const step = d.step ?? d.epoch ?? null;
       const loss = d.loss ?? d.metrics?.loss;
 
@@ -169,14 +136,20 @@ useWebSocket(
       return;
     }
 
-    if (rawType.startsWith('JOB_')) {
-      // if you want, map job states here too
-      const status = msg.state || rawType.replace('JOB_', '');
+    if (t.startsWith('JOB_')) {
+      const status = ev?.state || t.replace('JOB_', '');
       setJob((prev) => (prev ? { ...prev, status } : { id: jobId, status, config: {} }));
     }
-  },
-  { reconnectInterval: 2000, maxReconnectAttempts: 10 }
-);
+  };
+
+  useWebSocket(
+    wsUrl,
+    (msg) => {
+      console.log("JobDetail received ws msg", msg);
+      applyEvent(msg);
+    },
+    { reconnectInterval: 2000, maxReconnectAttempts: 10 }
+  );
 
 
 

@@ -164,6 +164,9 @@ async def fetch_job_events_since(
             job_id,
             event_time,
             event_type,
+            seq,
+            producer,
+            schema_version,
             payload
             FROM job_events
             WHERE job_id = $1
@@ -176,3 +179,25 @@ async def fetch_job_events_since(
             limit,
         )
     return rows
+
+
+async def fetch_job_event_types_until(
+    job_id: str,
+    up_to_id: int,
+) -> List[str]:
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT event_type
+            FROM job_events
+            WHERE job_id = $1
+            AND id <= $2
+            ORDER BY id ASC
+            """,
+            job_id,
+            up_to_id,
+        )
+    return [r["event_type"] for r in rows]
