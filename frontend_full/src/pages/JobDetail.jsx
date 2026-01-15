@@ -6,6 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import JobStatusBadge from '../components/JobStatusBadge';
 import LogPanel from '../components/LogPanel';
 import Spinner from '../components/Spinner';
+import { EventType } from '../constants/eventTypes';
 import {
   LineChart,
   Line,
@@ -35,11 +36,11 @@ const parseHistoryEvents = (events) => {
     const d = ev.data || {};
     const state = ev.state || null;
 
-    if (t === "JOB_LOG") {
+    if (t === EventType.JOB_LOG) {
       if (d.message) logs.push(d.message);
     }
 
-    if (t === "EPOCH_METRIC" || t === "JOB_METRIC") {
+    if (t === EventType.EPOCH_METRIC || t === EventType.JOB_METRIC) {
       const step = d.step ?? d.epoch ?? null;
       const loss = d.loss ?? d.metrics?.loss; // <-- your data has metrics.loss
       if (step !== null && loss !== undefined) {
@@ -50,10 +51,10 @@ const parseHistoryEvents = (events) => {
     if (state) {
       lastStatus = state;
     } else if (t.startsWith("JOB_")) {
-      if (t === "JOB_COMPLETED") lastStatus = "COMPLETED";
-      else if (t === "JOB_FAILED") lastStatus = "FAILED";
-      else if (t === "JOB_STARTED" || t === "JOB_RUNNING") lastStatus = "RUNNING";
-      else if (t === "JOB_SUBMITTED") lastStatus = "SUBMITTED";
+      if (t === EventType.JOB_COMPLETED) lastStatus = "COMPLETED";
+      else if (t === EventType.JOB_FAILED) lastStatus = "FAILED";
+      else if (t === EventType.JOB_STARTED) lastStatus = "RUNNING";
+      else if (t === EventType.JOB_SUBMITTED) lastStatus = "SUBMITTED";
       else lastStatus = t.replace("JOB_", "");
     }
   }
@@ -117,12 +118,12 @@ const parseHistoryEvents = (events) => {
     const t = (ev?.event_type || '').toUpperCase();
     const d = ev?.data || {};
 
-    if (t === 'JOB_LOG' && d.message) {
+    if (t === EventType.JOB_LOG && d.message) {
       setLogs((prev) => [...prev, d.message].slice(-500));
       return;
     }
 
-    if (t === 'EPOCH_METRIC' || t === 'JOB_METRIC') {
+    if (t === EventType.EPOCH_METRIC || t === EventType.JOB_METRIC) {
       const step = d.step ?? d.epoch ?? null;
       const loss = d.loss ?? d.metrics?.loss;
 
