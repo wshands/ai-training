@@ -4,7 +4,6 @@ import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import NewJobWizard from './pages/NewJobWizard';
 import JobDetail from './pages/JobDetail';
-import Deployments from './pages/Deployments';
 
 const App = () => (
   <div className="min-h-screen flex flex-col">
@@ -15,7 +14,6 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/jobs/new" element={<NewJobWizard />} />
           <Route path="/jobs/:jobId" element={<JobDetail />} />
-          <Route path="/deployments" element={<Deployments />} />
         </Routes>
       </div>
     </main>

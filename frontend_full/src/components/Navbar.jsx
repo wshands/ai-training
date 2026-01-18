@@ -25,7 +25,6 @@ const Navbar = () => (
       <nav className="flex gap-2">
         <NavItem to="/">Jobs</NavItem>
         <NavItem to="/jobs/new">New Job</NavItem>
-        <NavItem to="/deployments">Deployments</NavItem>
       </nav>
     </div>
   </header>
