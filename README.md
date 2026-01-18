@@ -45,7 +45,7 @@ kubectl get pods  -n training-jobs
 
 To install the data plane with Helm:
 ```bash
-  helm upgrade --install ai-platform-data-plane ./helm-data-plane -n training-jobs --create-namespace
+  helm upgrade --install ai-platform-data-plane ./ai-platform-data-plane/helm-data-plane -n training-jobs --create-namespace
 ```
 
 To examine the job information in the DB:

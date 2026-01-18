@@ -89,6 +89,31 @@ async def process_job_submitted(ev):
         print("Job create error:", e, flush=True)
 
 
+async def process_job_cancelled(ev):
+    job_id = ev["job_id"]
+    job_name = f"train-{job_id[:8]}"
+    cm_name = f"{job_name}-config"
+    batch = client.BatchV1Api()
+    core = client.CoreV1Api()
+    try:
+        batch.delete_namespaced_job(
+            name=job_name,
+            namespace=TRAINING_NAMESPACE,
+            propagation_policy="Foreground",
+        )
+        print(f"Deleted job {job_name}", flush=True)
+    except Exception as e:
+        print("Job delete error:", e, flush=True)
+    try:
+        core.delete_namespaced_config_map(
+            name=cm_name,
+            namespace=TRAINING_NAMESPACE,
+        )
+        print(f"Deleted configmap {cm_name}", flush=True)
+    except Exception as e:
+        print("ConfigMap delete error:", e, flush=True)
+
+
 async def consume_forever():
     while True:
         try:
@@ -112,6 +137,8 @@ async def consume_once():
             ev = msg.value
             if ev.get("event_type") == "JOB_SUBMITTED":
                 await process_job_submitted(ev)
+            elif ev.get("event_type") == "JOB_CANCELLED":
+                await process_job_cancelled(ev)
     finally:
         await consumer.stop()
 

@@ -132,14 +132,19 @@ async def run_job():
     )
     opt = torch.optim.Adam(model.parameters(), lr=cfg.get("lr",1e-3))
     epochs = cfg.get("epochs",1)
+    fail_after_epoch = cfg.get("fail_after_epoch")
 
     await emit(EventType.JOB_LOG, jid, level="INFO", message="Training started")
     try:
         for e in range(epochs):
             if terminate:
-                await emit(EventType.JOB_LOG, jid, level="WARNING", message="Preempting job")
-                await emit(EventType.JOB_PREEMPTED, jid, epoch=e)
+                await emit(EventType.JOB_LOG, jid, level="WARNING", message="Cancellation requested")
+                await emit(EventType.JOB_CANCELLED, jid, epoch=e)
                 return 0
+            
+            # For testing failure handling
+            if fail_after_epoch and (e + 1) >= int(fail_after_epoch):
+                raise RuntimeError(f"forced failure at epoch {e + 1}")
 
             total = 0.0
             for X, y in loader:

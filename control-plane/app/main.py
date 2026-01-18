@@ -74,6 +74,7 @@ class JobSummary(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     model_id: Optional[str] = None
     dataset_id: Optional[str] = None
+    last_error: Optional[Dict[str, Any]] = None
 
 app = FastAPI(title="AI Platform Control Plane")
 
@@ -145,6 +146,8 @@ async def submit_training_job(req: TrainJobRequest):
         "extra": req.extra_config or {},
         "submitted_at": int(time.time()),
         "seq_start": 2,
+
+        "fail_after_epoch": 5,  # for testing only!!!! remove in prod
     }
 
     try:
@@ -168,12 +171,79 @@ async def submit_training_job(req: TrainJobRequest):
     return {"job_id": job_id, "status": "SUBMITTED"}
 
 
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    row = await fetch_job(job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    event = JobEventIn(
+        event_type=EventType.JOB_CANCELLED,
+        job_id=job_id,
+        seq=int(time.time()),
+        producer="control-plane",
+        payload={"reason": "cancelled_by_user"},
+    )
+
+    try:
+        await send_event(event)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
+
+    return {"job_id": job_id, "status": "CANCELLED"}
+
+
+@app.post("/jobs/{job_id}/retry")
+async def retry_job(job_id: str):
+    row = await fetch_job(job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    cfg = row["config"]
+    cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+
+    new_job_id = str(uuid.uuid4())
+    job_cfg = dict(cfg_obj)
+    job_cfg.update(
+        {
+            "job_id": new_job_id,
+            "submitted_at": int(time.time()),
+            "seq_start": 2,
+            "retry_of": job_id,
+        }
+    )
+
+    try:
+        await persist_initial_job(new_job_id, job_cfg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+
+    event = JobEventIn(
+        event_type=EventType.JOB_SUBMITTED,
+        job_id=new_job_id,
+        seq=1,
+        producer="control-plane",
+        payload={"config": job_cfg},
+    )
+
+    try:
+        await send_event(event)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
+
+    return {"job_id": new_job_id, "status": "SUBMITTED"}
+
+
 @app.get("/jobs", response_model=List[JobSummary])
 async def list_jobs(limit: int = 100):
     rows = await fetch_jobs(limit=limit)
     summaries: List[JobSummary] = []
 
     for r in rows:
+        last_event = r.get("last_event")
+        if isinstance(last_event, str):
+            last_event = json.loads(last_event)
+        last_error = (last_event or {}).get("error")
         summaries.append(
             JobSummary(
                 job_id=r["job_id"],
@@ -182,6 +252,7 @@ async def list_jobs(limit: int = 100):
                 submitted_at=r.get("submitted_at"),
                 updated_at=r.get("updated_at"),
                 config=json.loads(r["config"]) if isinstance(r["config"], str) else (r["config"] or {}),
+                last_error=last_error,
             )
         )
     return summaries

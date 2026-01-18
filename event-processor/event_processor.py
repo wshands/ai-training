@@ -35,6 +35,7 @@ from pydantic import ValidationError
 from typing import Any, Dict, Literal, Mapping, Optional, Tuple
 
 import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 import redis.asyncio as redis
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import (
@@ -275,22 +276,25 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
     details = ev.payload  # DETAILS ONLY
 
     async with conn.transaction():
-        inserted = await conn.fetchrow(
-            """
-            INSERT INTO job_events(event_id, job_id, seq, event_type, producer, schema_version, event_time, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE(to_timestamp($7), now()), $8::jsonb)
-            ON CONFLICT (event_id) DO NOTHING
-            RETURNING id, job_id, event_time
-            """,
-            event_id,
-            job_id,
-            seq,
-            event_type,
-            producer,
-            schema_version,
-            ts_sec,
-            json.dumps(details),
-        )
+        try:
+            inserted = await conn.fetchrow(
+                """
+                INSERT INTO job_events(event_id, job_id, seq, event_type, producer, schema_version, event_time, payload)
+                VALUES ($1, $2, $3, $4, $5, $6, COALESCE(to_timestamp($7), now()), $8::jsonb)
+                ON CONFLICT (event_id) DO NOTHING
+                RETURNING id, job_id, event_time
+                """,
+                event_id,
+                job_id,
+                seq,
+                event_type,
+                producer,
+                schema_version,
+                ts_sec,
+                json.dumps(details),
+            )
+        except UniqueViolationError:
+            return None
         if inserted is None:
             return None
 

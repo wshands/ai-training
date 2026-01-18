@@ -46,13 +46,6 @@ async def init_db():
             ON job_events(job_id, id);
             """)
 
-            # (Recommended) enforce per-job seq uniqueness once seq is populated for all producers
-            await conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_job_events_job_id_seq
-            ON job_events(job_id, seq)
-            WHERE seq IS NOT NULL;
-            """)
-
             await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_job_events_job_id_seq
             ON job_events(job_id, seq);
@@ -106,6 +99,7 @@ async def fetch_jobs(limit: int = 100) -> List[asyncpg.Record]:
               j.submitted_at,
               COALESCE(js.updated_at, j.updated_at) AS updated_at,
               j.config,
+              js.last_event,
               COALESCE(js.last_state, 'SUBMITTED') AS status
             FROM jobs AS j
             LEFT JOIN job_state AS js

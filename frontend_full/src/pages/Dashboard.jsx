@@ -32,9 +32,16 @@ const Dashboard = () => {
     const state = msg?.state;
     const eventType = (msg?.event_type || '').toUpperCase();
     const nextStatus = state || (eventType.startsWith('JOB_') ? eventType.replace('JOB_', '') : '');
-    if (!nextStatus) return;
     setJobs((prev) =>
-      prev.map((job) => (job.job_id === jobId ? { ...job, status: nextStatus } : job))
+      prev.map((job) => {
+        if (job.job_id !== jobId) return job;
+        const updates = {};
+        if (nextStatus) updates.status = nextStatus;
+        if (eventType === 'JOB_FAILED') {
+          updates.last_error = msg?.data?.error || msg?.data || null;
+        }
+        return { ...job, ...updates };
+      })
     );
   });
 
@@ -78,6 +85,7 @@ const Dashboard = () => {
                 <th className="px-3 py-2 text-left">Model</th>
                 <th className="px-3 py-2 text-left">Dataset</th>
                 <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">Last Error</th>
                 <th className="px-3 py-2 text-left">Created</th>
               </tr>
             </thead>
@@ -100,6 +108,9 @@ const Dashboard = () => {
                   </td>
                   <td className="px-3 py-2">
                     <JobStatusBadge status={job.status} />
+                  </td>
+                  <td className="px-3 py-2 text-xs text-rose-300">
+                    {job.last_error?.message || job.last_error?.type || ''}
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-400">
                     {job.created_at || ''}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, handleApiError } from '../hooks/useApi';
 import { WS_BASE_URL } from '../config';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -19,17 +19,22 @@ import {
 
 const JobDetail = () => {
   const { jobId } = useParams();
+  const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  const [retryErr, setRetryErr] = useState('');
+  const [retrying, setRetrying] = useState(false);
   const [logs, setLogs] = useState([]);
   const [metrics, setMetrics] = useState([]);
+  const [lastError, setLastError] = useState(null);
 
 
 const parseHistoryEvents = (events) => {
   const logs = [];
   const metrics = [];
   let lastStatus = null;
+  let lastError = null;
 
   for (const ev of events || []) {
     const t = (ev.event_type || "").toUpperCase();
@@ -49,6 +54,10 @@ const parseHistoryEvents = (events) => {
       }
     }
 
+    if (t === EventType.JOB_FAILED) {
+      lastError = d?.error || d;
+    }
+
     if (state) {
       lastStatus = state;
     } else if (t.startsWith("JOB_")) {
@@ -61,7 +70,7 @@ const parseHistoryEvents = (events) => {
   }
 
   metrics.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
-  return { logs, metrics, lastStatus };
+  return { logs, metrics, lastStatus, lastError };
 };
 
 
@@ -90,11 +99,12 @@ const parseHistoryEvents = (events) => {
         const jobData = jobRes.data;
         const events = evRes.data || [];
 
-        const { logs, metrics, lastStatus } = parseHistoryEvents(events);
+        const { logs, metrics, lastStatus, lastError } = parseHistoryEvents(events);
 
         setJob(lastStatus ? { ...jobData, status: jobData.status || lastStatus } : jobData);
         setLogs(logs.slice(-500));
         setMetrics(metrics);
+        setLastError(lastError);
 
       } catch (e) {
         if (cancelled) return;
@@ -139,6 +149,10 @@ const parseHistoryEvents = (events) => {
       return;
     }
 
+    if (t === EventType.JOB_FAILED) {
+      setLastError(d?.error || d);
+    }
+
     if (t.startsWith('JOB_')) {
       const status = ev?.state || t.replace('JOB_', '');
       setJob((prev) => (prev ? { ...prev, status } : { id: jobId, status, config: {} }));
@@ -155,6 +169,36 @@ const parseHistoryEvents = (events) => {
   );
 
 
+
+  const handleCancel = async () => {
+    setRetryErr('');
+    setRetrying(true);
+    try {
+      await api.post(`/jobs/${jobId}/cancel`);
+    } catch (e) {
+      setRetryErr(handleApiError(e));
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    setRetryErr('');
+    setRetrying(true);
+    try {
+      const res = await api.post(`/jobs/${jobId}/retry`);
+      const newJobId = res?.data?.job_id;
+      if (newJobId) {
+        navigate(`/jobs/${newJobId}`);
+      } else {
+        setRetryErr('Retry request succeeded but no job id was returned.');
+      }
+    } catch (e) {
+      setRetryErr(handleApiError(e));
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -182,7 +226,31 @@ const parseHistoryEvents = (events) => {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold mb-1">Job {jobId}</h1>
+        <div className="flex items-center justify-between gap-4 mb-1">
+          <h1 className="text-xl font-semibold">Job {jobId}</h1>
+          <div className="flex items-center gap-2">
+            {['SUBMITTED', 'PENDING', 'RUNNING'].includes(job?.status) && (
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-md bg-rose-500 text-sm font-medium hover:bg-rose-400 disabled:opacity-50"
+                onClick={handleCancel}
+                disabled={retrying}
+              >
+                Cancel
+              </button>
+            )}
+            {job?.status === 'FAILED' && (
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-md bg-sky-500 text-sm font-medium hover:bg-sky-400 disabled:opacity-50"
+                onClick={handleRetry}
+                disabled={retrying}
+              >
+                {retrying ? 'Retrying…' : 'Retry'}
+              </button>
+            )}
+          </div>
+        </div>
         <JobStatusBadge status={job.status} />
         <div className="mt-2 text-xs text-slate-400">
           Model:{' '}
@@ -192,6 +260,29 @@ const parseHistoryEvents = (events) => {
           </span>
         </div>
       </div>
+
+      {retryErr && (
+        <div className="text-sm text-rose-300 bg-rose-950/40 border border-rose-800 rounded p-3">
+          Request failed: {retryErr}
+        </div>
+      )}
+
+      {lastError && (
+        <div className="text-sm text-rose-300 bg-rose-950/40 border border-rose-800 rounded p-3">
+          <div className="font-semibold">Job failed</div>
+          {lastError?.message && (
+            <div className="mt-1">{lastError.message}</div>
+          )}
+          {lastError?.type && (
+            <div className="mt-1 text-xs text-rose-200/80">{lastError.type}</div>
+          )}
+          {!lastError?.message && !lastError?.type && (
+            <pre className="mt-2 whitespace-pre-wrap break-all text-xs">
+              {JSON.stringify(lastError, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div>
