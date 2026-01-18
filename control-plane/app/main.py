@@ -147,7 +147,7 @@ async def submit_training_job(req: TrainJobRequest):
         "submitted_at": int(time.time()),
         "seq_start": 2,
 
-        "fail_after_epoch": 5,  # for testing only!!!! remove in prod
+        #"fail_after_epoch": 5,  # for testing only!!!! remove in prod
     }
 
     try:
