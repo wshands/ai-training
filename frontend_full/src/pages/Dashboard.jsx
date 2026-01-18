@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, handleApiError } from '../hooks/useApi';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { WS_BASE_URL } from '../config';
 import JobStatusBadge from '../components/JobStatusBadge';
 import Spinner from '../components/Spinner';
 
@@ -22,6 +24,19 @@ const Dashboard = () => {
     };
     fetchJobs();
   }, []);
+
+  const wsUrl = `${WS_BASE_URL}/ws/jobs`;
+  useWebSocket(wsUrl, (msg) => {
+    const jobId = msg?.job_id;
+    if (!jobId) return;
+    const state = msg?.state;
+    const eventType = (msg?.event_type || '').toUpperCase();
+    const nextStatus = state || (eventType.startsWith('JOB_') ? eventType.replace('JOB_', '') : '');
+    if (!nextStatus) return;
+    setJobs((prev) =>
+      prev.map((job) => (job.job_id === jobId ? { ...job, status: nextStatus } : job))
+    );
+  });
 
   return (
     <div>

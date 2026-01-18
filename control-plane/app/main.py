@@ -261,6 +261,55 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
             pass
 
 
+@app.websocket("/ws/jobs")
+async def ws_jobs_stream(websocket: WebSocket):
+    await websocket.accept()
+
+    if redis_client is None:
+        await websocket.close(code=1011)
+        return
+
+    r = redis_client  # type: ignore
+    pubsub = r.pubsub()
+    await pubsub.psubscribe("job_events:*")
+
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "pmessage":
+                continue
+
+            raw = message["data"]
+            try:
+                event = json.loads(raw)
+            except Exception:
+                continue
+
+            try:
+                event_out = JobEventOut.model_validate(event)
+            except ValidationError:
+                continue
+
+            await websocket.send_json(event_out.model_dump())
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"ws_jobs_stream error: {e}", flush=True)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+    finally:
+        try:
+            await pubsub.punsubscribe("job_events:*")
+        except Exception:
+            pass
+        try:
+            await pubsub.close()
+        except Exception:
+            pass
+
+
 @app.get("/jobs/{job_id}/events")
 async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
     prior_state: EventJobState | None = None

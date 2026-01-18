@@ -43,8 +43,9 @@ const parseHistoryEvents = (events) => {
     if (t === EventType.EPOCH_METRIC || t === EventType.JOB_METRIC) {
       const step = d.step ?? d.epoch ?? null;
       const loss = d.loss ?? d.metrics?.loss; // <-- your data has metrics.loss
-      if (step !== null && loss !== undefined) {
-        metrics.push({ step, loss, ...d });
+      const accuracy = d.accuracy ?? d.metrics?.accuracy;
+      if (step !== null && (loss !== undefined || accuracy !== undefined)) {
+        metrics.push({ step, loss, accuracy, ...d });
       }
     }
 
@@ -126,10 +127,11 @@ const parseHistoryEvents = (events) => {
     if (t === EventType.EPOCH_METRIC || t === EventType.JOB_METRIC) {
       const step = d.step ?? d.epoch ?? null;
       const loss = d.loss ?? d.metrics?.loss;
+      const accuracy = d.accuracy ?? d.metrics?.accuracy;
 
-      if (step !== null && loss !== undefined) {
+      if (step !== null && (loss !== undefined || accuracy !== undefined)) {
         setMetrics((prev) => {
-          const next = [...prev, { step, loss, ...d }];
+          const next = [...prev, { step, loss, accuracy, ...d }];
           next.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
           return next;
         });
@@ -208,7 +210,13 @@ const parseHistoryEvents = (events) => {
                 <LineChart data={metrics}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis dataKey="step" tick={{ fill: '#9ca3af', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                  <YAxis yAxisId="loss" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                  <YAxis
+                    yAxisId="accuracy"
+                    orientation="right"
+                    domain={[0, 1]}
+                    tick={{ fill: '#9ca3af', fontSize: 10 }}
+                  />
                   <Tooltip />
                   <Line
                     type="monotone"
@@ -216,6 +224,15 @@ const parseHistoryEvents = (events) => {
                     stroke="#38bdf8"
                     dot={false}
                     strokeWidth={1.6}
+                    yAxisId="loss"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="accuracy"
+                    stroke="#34d399"
+                    dot={false}
+                    strokeWidth={1.6}
+                    yAxisId="accuracy"
                   />
                 </LineChart>
               </ResponsiveContainer>

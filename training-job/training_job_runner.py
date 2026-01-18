@@ -99,11 +99,20 @@ def build_model():
     )
 
 
-def build_data(batch_size):
+def build_data(batch_size, val_split=0.2, seed=42):
     import torch.utils.data as data
-    X = torch.randn(1000,128)
-    y = torch.randint(0,10,(1000,))
-    return data.DataLoader(data.TensorDataset(X,y), batch_size=batch_size, shuffle=True)
+    gen = torch.Generator().manual_seed(seed)
+    X = torch.randn(2000, 128, generator=gen)
+    weights = torch.randn(10, 128, generator=gen)
+    logits = X @ weights.T
+    y = logits.argmax(dim=1)
+    dataset = data.TensorDataset(X, y)
+    val_size = int(len(dataset) * val_split)
+    train_size = len(dataset) - val_size
+    train_ds, val_ds = data.random_split(dataset, [train_size, val_size], generator=gen)
+    train_loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader = data.DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+    return train_loader, val_loader
 
 
 async def run_job():
@@ -115,7 +124,12 @@ async def run_job():
     
     model = build_model()
     await emit(EventType.JOB_LOG, jid, level="INFO", message="Building synthetic dataset")
-    loader = build_data(cfg.get("batch_size",32))
+    val_split = float(cfg.get("val_split", 0.2))
+    loader, val_loader = build_data(
+        cfg.get("batch_size",32),
+        val_split=val_split,
+        seed=int(cfg.get("seed", 42)),
+    )
     opt = torch.optim.Adam(model.parameters(), lr=cfg.get("lr",1e-3))
     epochs = cfg.get("epochs",1)
 
@@ -137,8 +151,30 @@ async def run_job():
                 total += loss.item()
 
             avg = total / len(loader)
-            await emit(EventType.EPOCH_METRIC, jid, epoch=e + 1, metrics={"loss": avg})
-            await emit(EventType.JOB_LOG, jid, level="INFO", message=f"Epoch {e+1}/{epochs} completed, loss={avg:.4f}")
+            model.eval()
+            correct = 0
+            seen = 0
+            with torch.no_grad():
+                for X, y in val_loader:
+                    out = model(X)
+                    preds = out.argmax(dim=1)
+                    correct += (preds == y).sum().item()
+                    seen += y.numel()
+            model.train()
+
+            accuracy = (correct / seen) if seen else 0.0
+            await emit(
+                EventType.EPOCH_METRIC,
+                jid,
+                epoch=e + 1,
+                metrics={"loss": avg, "accuracy": accuracy},
+            )
+            await emit(
+                EventType.JOB_LOG,
+                jid,
+                level="INFO",
+                message=f"Epoch {e+1}/{epochs} completed, loss={avg:.4f}, acc={accuracy:.4f}",
+            )
             await asyncio.sleep(0.1)
 
     except Exception as ex:
