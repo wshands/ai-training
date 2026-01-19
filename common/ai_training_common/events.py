@@ -29,6 +29,8 @@ class JobEventIn(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     event_type: EventType
     job_id: str
+    tenant_id: str
+    user_id: str
     seq: int
     ts_ms: int = Field(default_factory=lambda: int(time.time() * 1000))
     producer: str
@@ -40,6 +42,8 @@ class JobEventIn(BaseModel):
         *,
         event_type: EventType,
         job_id: str,
+        tenant_id: str,
+        user_id: str,
         seq: int,
         producer: str,
         payload: Optional[Dict[str, Any]] = None,
@@ -52,6 +56,8 @@ class JobEventIn(BaseModel):
             event_id=event_id or str(uuid.uuid4()),
             event_type=event_type,
             job_id=job_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             seq=seq,
             ts_ms=ts_ms or int(time.time() * 1000),
             producer=producer,
@@ -62,6 +68,8 @@ class JobEventIn(BaseModel):
         return JobEventOut(
             id=id,
             job_id=self.job_id,
+            tenant_id=self.tenant_id,
+            user_id=self.user_id,
             event_time=event_time,
             event_type=self.event_type,
             seq=self.seq,
@@ -79,6 +87,8 @@ class JobEventOut(BaseModel):
 
     id: int
     job_id: str
+    tenant_id: str
+    user_id: str
     event_time: str
     event_type: EventType
     seq: int

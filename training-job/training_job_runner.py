@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 from common.ai_training_common.events import JobEventIn, EventType
+from common.ai_training_common.config import DEFAULT_TENANT_ID, DEFAULT_USER_ID
 import os, json, time, sys, signal, asyncio
 import torch
 from aiokafka import AIOKafkaProducer
@@ -40,6 +41,8 @@ TOPIC = os.environ.get("KAFKA_TOPIC", "job-events")
 # ---------- PRODUCER INIT ----------
 producer: AIOKafkaProducer | None = None
 current_seq: int = 0
+current_tenant_id: str | None = None
+current_user_id: str | None = None
 PRODUCER_NAME = os.environ.get("PRODUCER_NAME", "training-job")
 
 async def init_producer():
@@ -57,6 +60,8 @@ async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
     global current_seq
     if producer is None:
         raise RuntimeError("Producer not initialized")
+    if not current_tenant_id or not current_user_id:
+        raise RuntimeError("Missing tenant/user identity for job events")
 
     if current_seq == 0:
         current_seq = int(kwargs.pop("_seq_start", 2))
@@ -64,11 +69,15 @@ async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
     ev = JobEventIn.make(
         event_type=event_type,
         job_id=job_id,
+        tenant_id=current_tenant_id,
+        user_id=current_user_id,
         seq=current_seq,
         producer=PRODUCER_NAME,
         payload=dict(kwargs),
     )
     current_seq += 1
+
+    logger.info(f"sending event with tenant_id={current_tenant_id} user_id={current_user_id} ")
 
     try:
         meta = await producer.send_and_wait(
@@ -119,6 +128,9 @@ async def run_job():
     cfg = load_config()
     jid = cfg.get("job_id", f"job-{int(time.time())}")
     seq_start = int(cfg.get("seq_start", 2))
+    global current_tenant_id, current_user_id
+    current_tenant_id = cfg.get("tenant_id") or DEFAULT_TENANT_ID
+    current_user_id = cfg.get("user_id") or DEFAULT_USER_ID
 
     await emit(EventType.JOB_STARTED, jid, _seq_start=seq_start)
     

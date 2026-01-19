@@ -13,8 +13,36 @@ async def init_db():
         pool = await asyncpg.create_pool(POSTGRES_DSN)
         async with pool.acquire() as conn:
             await conn.execute("""
+            CREATE TABLE IF NOT EXISTS tenants (
+                tenant_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT now()
+            );
+            """)
+
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT now()
+            );
+            """)
+
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS memberships (
+                tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
+                user_id TEXT NOT NULL REFERENCES users(user_id),
+                role TEXT NOT NULL DEFAULT 'owner',
+                created_at TIMESTAMP DEFAULT now(),
+                PRIMARY KEY (tenant_id, user_id)
+            );
+            """)
+
+            await conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 job_id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT now(),
                 submitted_at TIMESTAMP,
                 updated_at TIMESTAMP,
@@ -28,10 +56,17 @@ async def init_db():
             """)
 
             await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_jobs_tenant_created_at_desc
+            ON jobs(tenant_id, created_at DESC);
+            """)
+
+            await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_events (
                 id BIGSERIAL PRIMARY KEY,
                 event_id TEXT NOT NULL UNIQUE,
                 job_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
                 seq BIGINT,
                 event_type TEXT NOT NULL,
                 producer TEXT,
@@ -47,6 +82,11 @@ async def init_db():
             """)
 
             await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_job_events_tenant_job_id_id
+            ON job_events(tenant_id, job_id, id);
+            """)
+
+            await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_job_events_job_id_seq
             ON job_events(job_id, seq);
             """)
@@ -54,6 +94,8 @@ async def init_db():
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS job_state (
             job_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
             last_state TEXT NOT NULL DEFAULT 'SUBMITTED',
             last_event JSONB NOT NULL DEFAULT '{}'::jsonb,
             last_event_id TEXT,
@@ -71,21 +113,23 @@ async def init_db():
     return pool
 
 
-async def persist_initial_job(job_id: str, config: dict):
+async def persist_initial_job(job_id: str, config: dict, tenant_id: str, user_id: str):
     global pool
     if pool is None:
         await init_db()
     async with pool.acquire() as conn:
         await conn.execute(
-            """INSERT INTO jobs(job_id, submitted_at, config)
-                   VALUES($1, to_timestamp($2), $3::jsonb)""",
+            """INSERT INTO jobs(job_id, tenant_id, user_id, submitted_at, config)
+                   VALUES($1, $2, $3, to_timestamp($4), $5::jsonb)""",
             job_id,
+            tenant_id,
+            user_id,
             config.get("submitted_at", int(time.time())),
             json.dumps(config),
         )
 
 
-async def fetch_jobs(limit: int = 100) -> List[asyncpg.Record]:
+async def fetch_jobs(tenant_id: str, limit: int = 100) -> List[asyncpg.Record]:
     global pool
     if pool is None:
         await init_db()
@@ -104,20 +148,24 @@ async def fetch_jobs(limit: int = 100) -> List[asyncpg.Record]:
             FROM jobs AS j
             LEFT JOIN job_state AS js
               ON js.job_id = j.job_id
+            WHERE j.tenant_id = $1
             ORDER BY j.created_at DESC
-            LIMIT $1
+            LIMIT $2
             """,
+            tenant_id,
             limit,
         )
     return rows
 
 
-async def fetch_job(job_id: str):
+async def fetch_job(tenant_id: str, job_id: str):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             SELECT
               j.job_id,
+              j.tenant_id,
+              j.user_id,
               j.created_at,
               j.submitted_at,
               j.updated_at,
@@ -126,14 +174,17 @@ async def fetch_job(job_id: str):
             FROM jobs AS j
             LEFT JOIN job_state AS js
               ON js.job_id = j.job_id
-            WHERE j.job_id = $1
+            WHERE j.tenant_id = $1
+              AND j.job_id = $2
             """,
+            tenant_id,
             job_id,
         )
         return row
 
 
 async def fetch_job_events_since(
+    tenant_id: str,
     job_id: str,
     last_id: int = 0,
     limit: int = 500,
@@ -156,6 +207,8 @@ async def fetch_job_events_since(
             SELECT
             id,
             job_id,
+            tenant_id,
+            user_id,
             event_time,
             event_type,
             seq,
@@ -163,11 +216,13 @@ async def fetch_job_events_since(
             schema_version,
             payload
             FROM job_events
-            WHERE job_id = $1
-            AND id > $2
+            WHERE tenant_id = $1
+            AND job_id = $2
+            AND id > $3
             ORDER BY id ASC
-            LIMIT $3
+            LIMIT $4
             """,
+            tenant_id,
             job_id,
             last_id,
             limit,
@@ -176,6 +231,7 @@ async def fetch_job_events_since(
 
 
 async def fetch_job_event_types_until(
+    tenant_id: str,
     job_id: str,
     up_to_id: int,
 ) -> List[str]:
@@ -187,10 +243,12 @@ async def fetch_job_event_types_until(
             """
             SELECT event_type
             FROM job_events
-            WHERE job_id = $1
-            AND id <= $2
+            WHERE tenant_id = $1
+            AND job_id = $2
+            AND id <= $3
             ORDER BY id ASC
             """,
+            tenant_id,
             job_id,
             up_to_id,
         )

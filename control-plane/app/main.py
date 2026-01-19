@@ -26,7 +26,7 @@ import redis.asyncio as redis
 
 from datetime import datetime
 from enum import Enum
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from kubernetes import client, config as k8s_config
@@ -39,6 +39,8 @@ from common.ai_training_common.config import (
     TRAINING_IMAGE,
     CUSTOMER_KUBECONFIG,
     REDIS_URL,
+    DEFAULT_TENANT_ID,
+    DEFAULT_USER_ID,
 )
 from .kafka_bus import init_kafka, send_event
 from common.ai_training_common.db import (
@@ -95,6 +97,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def resolve_identity(
+    x_tenant_id: str | None = Header(None),
+    x_user_id: str | None = Header(None),
+) -> tuple[str, str]:
+    tenant_id = x_tenant_id or DEFAULT_TENANT_ID
+    user_id = x_user_id or DEFAULT_USER_ID
+    if not tenant_id or not user_id:
+        raise HTTPException(status_code=400, detail="Missing tenant or user identity")
+    return tenant_id, user_id
+
+def resolve_ws_identity(websocket: WebSocket) -> tuple[str, str]:
+    tenant_id = websocket.headers.get("x-tenant-id") or DEFAULT_TENANT_ID
+    user_id = websocket.headers.get("x-user-id") or DEFAULT_USER_ID
+    if not tenant_id or not user_id:
+        raise HTTPException(status_code=400, detail="Missing tenant or user identity")
+    return tenant_id, user_id
+
 
 class TrainJobRequest(BaseModel):
     model_id: str
@@ -130,13 +149,19 @@ async def on_shutdown():
 
 
 @app.post("/jobs/train")
-async def submit_training_job(req: TrainJobRequest):
+async def submit_training_job(
+    req: TrainJobRequest,
+    identity: tuple[str, str] = Depends(resolve_identity),
+):
+    tenant_id, user_id = identity
     job_id = str(uuid.uuid4())
     job_name = f"train-{job_id[:8]}"
     config_map_name = f"{job_name}-config"
 
     job_cfg = {
         "job_id": job_id,
+        "tenant_id": tenant_id,
+        "user_id": user_id,
         "model_id": req.model_id,
         "dataset_id": req.dataset_id,
         "epochs": req.epochs,
@@ -151,13 +176,15 @@ async def submit_training_job(req: TrainJobRequest):
     }
 
     try:
-        await persist_initial_job(job_id, job_cfg)
+        await persist_initial_job(job_id, job_cfg, tenant_id, user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
     event = JobEventIn(
         event_type=EventType.JOB_SUBMITTED,
         job_id=job_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         seq=1,
         producer="control-plane",
         payload={"config": job_cfg},
@@ -172,14 +199,20 @@ async def submit_training_job(req: TrainJobRequest):
 
 
 @app.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str):
-    row = await fetch_job(job_id)
+async def cancel_job(
+    job_id: str,
+    identity: tuple[str, str] = Depends(resolve_identity),
+):
+    tenant_id, user_id = identity
+    row = await fetch_job(tenant_id, job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
 
     event = JobEventIn(
         event_type=EventType.JOB_CANCELLED,
         job_id=job_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         seq=int(time.time()),
         producer="control-plane",
         payload={"reason": "cancelled_by_user"},
@@ -194,8 +227,12 @@ async def cancel_job(job_id: str):
 
 
 @app.post("/jobs/{job_id}/retry")
-async def retry_job(job_id: str):
-    row = await fetch_job(job_id)
+async def retry_job(
+    job_id: str,
+    identity: tuple[str, str] = Depends(resolve_identity),
+):
+    tenant_id, user_id = identity
+    row = await fetch_job(tenant_id, job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -214,13 +251,15 @@ async def retry_job(job_id: str):
     )
 
     try:
-        await persist_initial_job(new_job_id, job_cfg)
+        await persist_initial_job(new_job_id, job_cfg, tenant_id, user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
     event = JobEventIn(
         event_type=EventType.JOB_SUBMITTED,
         job_id=new_job_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         seq=1,
         producer="control-plane",
         payload={"config": job_cfg},
@@ -235,8 +274,12 @@ async def retry_job(job_id: str):
 
 
 @app.get("/jobs", response_model=List[JobSummary])
-async def list_jobs(limit: int = 100):
-    rows = await fetch_jobs(limit=limit)
+async def list_jobs(
+    limit: int = 100,
+    identity: tuple[str, str] = Depends(resolve_identity),
+):
+    tenant_id, _ = identity
+    rows = await fetch_jobs(tenant_id, limit=limit)
     summaries: List[JobSummary] = []
 
     for r in rows:
@@ -260,8 +303,12 @@ async def list_jobs(limit: int = 100):
 
 
 @app.get("/jobs/{job_id}", response_model=JobSummary)
-async def get_job(job_id: str) -> JobSummary:
-    row = await fetch_job(job_id)
+async def get_job(
+    job_id: str,
+    identity: tuple[str, str] = Depends(resolve_identity),
+) -> JobSummary:
+    tenant_id, _ = identity
+    row = await fetch_job(tenant_id, job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -282,6 +329,16 @@ async def get_job(job_id: str) -> JobSummary:
 @app.websocket("/ws/jobs/{job_id}")
 async def ws_job_stream(websocket: WebSocket, job_id: str):
     await websocket.accept()
+    try:
+        tenant_id, _ = resolve_ws_identity(websocket)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+
+    row = await fetch_job(tenant_id, job_id)
+    if not row:
+        await websocket.close(code=1008)
+        return
 
     # Each WS gets its own pubsub subscription
     if redis_client is None:
@@ -309,6 +366,8 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
                 event_out = JobEventOut.model_validate(event)
             except ValidationError:
                 continue
+            if event_out.tenant_id != tenant_id:
+                continue
 
             await websocket.send_json(event_out.model_dump())
 
@@ -335,6 +394,11 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
 @app.websocket("/ws/jobs")
 async def ws_jobs_stream(websocket: WebSocket):
     await websocket.accept()
+    try:
+        tenant_id, _ = resolve_ws_identity(websocket)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
 
     if redis_client is None:
         await websocket.close(code=1011)
@@ -359,6 +423,8 @@ async def ws_jobs_stream(websocket: WebSocket):
                 event_out = JobEventOut.model_validate(event)
             except ValidationError:
                 continue
+            if event_out.tenant_id != tenant_id:
+                continue
 
             await websocket.send_json(event_out.model_dump())
 
@@ -382,14 +448,29 @@ async def ws_jobs_stream(websocket: WebSocket):
 
 
 @app.get("/jobs/{job_id}/events")
-async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
+async def get_job_events(
+    job_id: str,
+    since_id: int = 0,
+    limit: int = 5000,
+    identity: tuple[str, str] = Depends(resolve_identity),
+):
+    tenant_id, _ = identity
     prior_state: EventJobState | None = None
     if since_id > 0:
-        prior_types = await fetch_job_event_types_until(job_id=job_id, up_to_id=since_id)
+        prior_types = await fetch_job_event_types_until(
+            tenant_id=tenant_id,
+            job_id=job_id,
+            up_to_id=since_id,
+        )
         for event_type in prior_types:
             prior_state = apply_event(prior_state, event_type)
 
-    rows = await fetch_job_events_since(job_id=job_id, last_id=since_id, limit=limit)
+    rows = await fetch_job_events_since(
+        tenant_id=tenant_id,
+        job_id=job_id,
+        last_id=since_id,
+        limit=limit,
+    )
     out = []
     state = prior_state
     for r in rows:
@@ -407,6 +488,8 @@ async def get_job_events(job_id: str, since_id: int = 0, limit: int = 5000):
             JobEventOut(
                 id=int(r["id"]),
                 job_id=r["job_id"],
+                tenant_id=r["tenant_id"],
+                user_id=r["user_id"],
                 event_time=event_time_iso or "",
                 event_type=event_type,
                 seq=int(r["seq"] or 0),

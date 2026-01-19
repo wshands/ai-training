@@ -113,6 +113,8 @@ async def apply_job_event_to_jobs_table(
     conn,
     *,
     job_id: str,
+    tenant_id: str,
+    user_id: str,
     ev_type: str,
     ts: Optional[int],
     config: Optional[Mapping[str, Any]] = None,
@@ -174,15 +176,19 @@ async def apply_job_event_to_jobs_table(
     if ev_type == "JOB_SUBMITTED":
         await conn.execute(
             """
-            INSERT INTO jobs (job_id, config, submitted_at, updated_at)
+            INSERT INTO jobs (job_id, tenant_id, user_id, config, submitted_at, updated_at)
             VALUES (
                 $1,
-                COALESCE($2::jsonb, '{}'::jsonb),
-                COALESCE(to_timestamp($3), now()),
-                COALESCE(to_timestamp($3), now())
+                $2,
+                $3,
+                COALESCE($4::jsonb, '{}'::jsonb),
+                COALESCE(to_timestamp($5), now()),
+                COALESCE(to_timestamp($5), now())
             )
             ON CONFLICT (job_id) DO UPDATE
-              SET submitted_at = COALESCE(jobs.submitted_at, EXCLUDED.submitted_at),
+              SET tenant_id   = EXCLUDED.tenant_id,
+                  user_id     = EXCLUDED.user_id,
+                  submitted_at = COALESCE(jobs.submitted_at, EXCLUDED.submitted_at),
                   updated_at   = EXCLUDED.updated_at,
                   config       = CASE
                                   WHEN jobs.config = '{}'::jsonb
@@ -192,6 +198,8 @@ async def apply_job_event_to_jobs_table(
                                 END
             """,
             job_id,
+            tenant_id,
+            user_id,
             config_json,
             ts_sec,
         )
@@ -205,6 +213,7 @@ async def apply_job_event_to_jobs_table(
              SET updated_at = COALESCE(to_timestamp($2), now()),
                  config     = COALESCE($3::jsonb, jobs.config)
            WHERE job_id = $1
+             AND tenant_id = $4
            RETURNING 1
         )
         SELECT count(*) FROM u;
@@ -212,6 +221,7 @@ async def apply_job_event_to_jobs_table(
         job_id,
         ts_sec,
         config_json,
+        tenant_id,
     )
 
     if updated and int(updated) > 0:
@@ -234,15 +244,19 @@ async def apply_job_event_to_jobs_table(
     if on_missing_job_row == "upsert_stub":
         await conn.execute(
             """
-            INSERT INTO jobs (job_id, config, submitted_at, updated_at)
+            INSERT INTO jobs (job_id, tenant_id, user_id, config, submitted_at, updated_at)
             VALUES (
                 $1,
-                COALESCE($2::jsonb, '{}'::jsonb),
+                $2,
+                $3,
+                COALESCE($4::jsonb, '{}'::jsonb),
                 NULL,
-                COALESCE(to_timestamp($3), now())
+                COALESCE(to_timestamp($5), now())
             )
             ON CONFLICT (job_id) DO UPDATE
-              SET updated_at = EXCLUDED.updated_at,
+              SET tenant_id = EXCLUDED.tenant_id,
+                  user_id = EXCLUDED.user_id,
+                  updated_at = EXCLUDED.updated_at,
                   config     = CASE
                                 WHEN jobs.config = '{}'::jsonb
                                      AND EXCLUDED.config <> '{}'::jsonb
@@ -251,6 +265,8 @@ async def apply_job_event_to_jobs_table(
                               END
             """,
             job_id,
+            tenant_id,
+            user_id,
             config_json,
             ts_sec,
         )
@@ -265,6 +281,8 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
     a canonical object for Redis/WebSocket fan-out. Returns None if duplicate.
     """
     job_id = ev.job_id
+    tenant_id = ev.tenant_id
+    user_id = ev.user_id
     event_type = ev.event_type.value
     event_id = ev.event_id
     seq = ev.seq
@@ -279,13 +297,15 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         try:
             inserted = await conn.fetchrow(
                 """
-                INSERT INTO job_events(event_id, job_id, seq, event_type, producer, schema_version, event_time, payload)
-                VALUES ($1, $2, $3, $4, $5, $6, COALESCE(to_timestamp($7), now()), $8::jsonb)
+                INSERT INTO job_events(event_id, job_id, tenant_id, user_id, seq, event_type, producer, schema_version, event_time, payload)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(to_timestamp($9), now()), $10::jsonb)
                 ON CONFLICT (event_id) DO NOTHING
-                RETURNING id, job_id, event_time
+                RETURNING id, job_id, tenant_id, user_id, event_time
                 """,
                 event_id,
                 job_id,
+                tenant_id,
+                user_id,
                 seq,
                 event_type,
                 producer,
@@ -302,8 +322,9 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         event_time = inserted["event_time"]
 
         row = await conn.fetchrow(
-            "SELECT last_state FROM job_state WHERE job_id = $1",
+            "SELECT last_state FROM job_state WHERE job_id = $1 AND tenant_id = $2",
             job_id,
+            tenant_id,
         )
         current_state = JobState(row["last_state"]) if row and row["last_state"] else None
         new_state = apply_event(current_state, event_type)
@@ -311,16 +332,20 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         # Store details only in last_event (recommended; keeps job_state small and consistent)
         await conn.execute(
             """
-            INSERT INTO job_state(job_id, last_state, last_event, last_event_id, last_seq, updated_at)
-            VALUES($1, $2, $3::jsonb, $4, $5, now())
+            INSERT INTO job_state(job_id, tenant_id, user_id, last_state, last_event, last_event_id, last_seq, updated_at)
+            VALUES($1, $2, $3, $4, $5::jsonb, $6, $7, now())
             ON CONFLICT(job_id) DO UPDATE
-              SET last_state = EXCLUDED.last_state,
+              SET tenant_id = EXCLUDED.tenant_id,
+                  user_id = EXCLUDED.user_id,
+                  last_state = EXCLUDED.last_state,
                   last_event = EXCLUDED.last_event,
                   last_event_id = EXCLUDED.last_event_id,
                   last_seq = EXCLUDED.last_seq,
                   updated_at = now()
             """,
             job_id,
+            tenant_id,
+            user_id,
             new_state.value,
             json.dumps(details),
             event_id,
@@ -331,6 +356,8 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         await apply_job_event_to_jobs_table(
             conn,
             job_id=job_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             ev_type=event_type,
             ts=ts_ms,
             config=cfg,
@@ -340,6 +367,8 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         return JobEventOut(
             id=db_id,
             job_id=job_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             event_time=event_time.isoformat() if isinstance(event_time, datetime) else str(event_time),
             event_type=event_type,
             seq=int(seq or 0),

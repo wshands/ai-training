@@ -9,3 +9,5 @@ CUSTOMER_KUBECONFIG = os.environ.get("CUSTOMER_KUBECONFIG", "/app/kubeconfig.yam
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", "8000"))
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")  # or wherever your Redis lives
+DEFAULT_TENANT_ID = os.environ.get("DEFAULT_TENANT_ID", "local-dev-tenant")
+DEFAULT_USER_ID = os.environ.get("DEFAULT_USER_ID", "local-dev-user")
