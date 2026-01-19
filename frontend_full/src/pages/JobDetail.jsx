@@ -14,6 +14,8 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
+  Label,
   ResponsiveContainer,
 } from 'recharts';
 
@@ -28,11 +30,14 @@ const JobDetail = () => {
   const [logs, setLogs] = useState([]);
   const [metrics, setMetrics] = useState([]);
   const [lastError, setLastError] = useState(null);
+  const [xAxisInfo, setXAxisInfo] = useState({ hasStep: false, hasEpoch: false });
 
 
 const parseHistoryEvents = (events) => {
   const logs = [];
   const metrics = [];
+  let hasStep = false;
+  let hasEpoch = false;
   let lastStatus = null;
   let lastError = null;
 
@@ -47,6 +52,8 @@ const parseHistoryEvents = (events) => {
 
     if (t === EventType.EPOCH_METRIC || t === EventType.JOB_METRIC) {
       const step = d.step ?? d.epoch ?? null;
+      if (d.step !== undefined && d.step !== null) hasStep = true;
+      if (d.epoch !== undefined && d.epoch !== null) hasEpoch = true;
       const loss = d.loss ?? d.metrics?.loss; // <-- your data has metrics.loss
       const accuracy = d.accuracy ?? d.metrics?.accuracy;
       if (step !== null && (loss !== undefined || accuracy !== undefined)) {
@@ -70,7 +77,7 @@ const parseHistoryEvents = (events) => {
   }
 
   metrics.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
-  return { logs, metrics, lastStatus, lastError };
+  return { logs, metrics, lastStatus, lastError, hasStep, hasEpoch };
 };
 
 
@@ -99,12 +106,14 @@ const parseHistoryEvents = (events) => {
         const jobData = jobRes.data;
         const events = evRes.data || [];
 
-        const { logs, metrics, lastStatus, lastError } = parseHistoryEvents(events);
+        const { logs, metrics, lastStatus, lastError, hasStep, hasEpoch } =
+          parseHistoryEvents(events);
 
         setJob(lastStatus ? { ...jobData, status: jobData.status || lastStatus } : jobData);
         setLogs(logs.slice(-500));
         setMetrics(metrics);
         setLastError(lastError);
+        setXAxisInfo({ hasStep, hasEpoch });
 
       } catch (e) {
         if (cancelled) return;
@@ -140,6 +149,11 @@ const parseHistoryEvents = (events) => {
       const accuracy = d.accuracy ?? d.metrics?.accuracy;
 
       if (step !== null && (loss !== undefined || accuracy !== undefined)) {
+        if (d.step !== undefined && d.step !== null) {
+          setXAxisInfo((prev) => (prev.hasStep ? prev : { ...prev, hasStep: true }));
+        } else if (d.epoch !== undefined && d.epoch !== null) {
+          setXAxisInfo((prev) => (prev.hasEpoch ? prev : { ...prev, hasEpoch: true }));
+        }
         setMetrics((prev) => {
           const next = [...prev, { step, loss, accuracy, ...d }];
           next.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
@@ -199,6 +213,14 @@ const parseHistoryEvents = (events) => {
       setRetrying(false);
     }
   };
+
+  const xAxisLabel = xAxisInfo.hasStep
+    ? xAxisInfo.hasEpoch
+      ? 'Step/Epoch'
+      : 'Step'
+    : xAxisInfo.hasEpoch
+    ? 'Epoch'
+    : 'Step';
 
   if (loading) {
     return (
@@ -300,15 +322,41 @@ const parseHistoryEvents = (events) => {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={metrics}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                  <XAxis dataKey="step" tick={{ fill: '#9ca3af', fontSize: 10 }} />
-                  <YAxis yAxisId="loss" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                  <XAxis dataKey="step" tick={{ fill: '#9ca3af', fontSize: 10 }}>
+                    <Label
+                      value={xAxisLabel}
+                      position="insideBottom"
+                      offset={-4}
+                      style={{ fill: '#9ca3af', fontSize: 11 }}
+                    />
+                  </XAxis>
+                  <YAxis yAxisId="loss" tick={{ fill: '#9ca3af', fontSize: 10 }}>
+                    <Label
+                      value="Loss"
+                      angle={-90}
+                      position="insideLeft"
+                      style={{ fill: '#9ca3af', fontSize: 11 }}
+                    />
+                  </YAxis>
                   <YAxis
                     yAxisId="accuracy"
                     orientation="right"
                     domain={[0, 1]}
                     tick={{ fill: '#9ca3af', fontSize: 10 }}
-                  />
+                  >
+                    <Label
+                      value="Accuracy"
+                      angle={90}
+                      position="insideRight"
+                      style={{ fill: '#9ca3af', fontSize: 11 }}
+                    />
+                  </YAxis>
                   <Tooltip />
+                  <Legend
+                    verticalAlign="top"
+                    height={20}
+                    wrapperStyle={{ color: '#9ca3af', fontSize: 11 }}
+                  />
                   <Line
                     type="monotone"
                     dataKey="loss"
