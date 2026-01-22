@@ -13,32 +13,6 @@ async def init_db():
         pool = await asyncpg.create_pool(POSTGRES_DSN)
         async with pool.acquire() as conn:
             await conn.execute("""
-            CREATE TABLE IF NOT EXISTS tenants (
-                tenant_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT now()
-            );
-            """)
-
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                email TEXT UNIQUE,
-                created_at TIMESTAMP DEFAULT now()
-            );
-            """)
-
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS memberships (
-                tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
-                user_id TEXT NOT NULL REFERENCES users(user_id),
-                role TEXT NOT NULL DEFAULT 'owner',
-                created_at TIMESTAMP DEFAULT now(),
-                PRIMARY KEY (tenant_id, user_id)
-            );
-            """)
-
-            await conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 job_id TEXT PRIMARY KEY,
                 tenant_id TEXT NOT NULL,

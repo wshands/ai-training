@@ -26,12 +26,14 @@ import redis.asyncio as redis
 
 from datetime import datetime
 from enum import Enum
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocket, WebSocketDisconnect
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from kubernetes import client, config as k8s_config
 from pydantic import BaseModel, Field, ValidationError
 from typing import Any, Dict, List, Optional
+import jwt
 
 #from fastapi import WebSocket
 from common.ai_training_common.config import (
@@ -39,8 +41,10 @@ from common.ai_training_common.config import (
     TRAINING_IMAGE,
     CUSTOMER_KUBECONFIG,
     REDIS_URL,
-    DEFAULT_TENANT_ID,
-    DEFAULT_USER_ID,
+    CLERK_JWKS_URL,
+    CLERK_ISSUER,
+    CLERK_AUDIENCE,
+    CLERK_JWT_ALGORITHM,
 )
 from .kafka_bus import init_kafka, send_event
 from common.ai_training_common.db import (
@@ -78,6 +82,13 @@ class JobSummary(BaseModel):
     dataset_id: Optional[str] = None
     last_error: Optional[Dict[str, Any]] = None
 
+
+class AuthContext(BaseModel):
+    user_id: str
+    tenant_id: str
+    email: Optional[str] = None
+    role: Optional[str] = None
+
 app = FastAPI(title="AI Platform Control Plane")
 
 # Configure CORS
@@ -97,22 +108,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def resolve_identity(
-    x_tenant_id: str | None = Header(None),
-    x_user_id: str | None = Header(None),
-) -> tuple[str, str]:
-    tenant_id = x_tenant_id or DEFAULT_TENANT_ID
-    user_id = x_user_id or DEFAULT_USER_ID
-    if not tenant_id or not user_id:
-        raise HTTPException(status_code=400, detail="Missing tenant or user identity")
-    return tenant_id, user_id
+bearer_scheme = HTTPBearer(auto_error=False)
+_jwks_client: jwt.PyJWKClient | None = None
 
-def resolve_ws_identity(websocket: WebSocket) -> tuple[str, str]:
-    tenant_id = websocket.headers.get("x-tenant-id") or DEFAULT_TENANT_ID
-    user_id = websocket.headers.get("x-user-id") or DEFAULT_USER_ID
-    if not tenant_id or not user_id:
-        raise HTTPException(status_code=400, detail="Missing tenant or user identity")
-    return tenant_id, user_id
+
+def get_jwks_client() -> jwt.PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        if not CLERK_JWKS_URL:
+            raise HTTPException(status_code=500, detail="CLERK_JWKS_URL is not configured")
+        _jwks_client = jwt.PyJWKClient(CLERK_JWKS_URL)
+    return _jwks_client
+
+
+def decode_clerk_token(token: str) -> AuthContext:
+    try:
+        jwk_client = get_jwks_client()
+        signing_key = jwk_client.get_signing_key_from_jwt(token)
+        options = {"verify_aud": bool(CLERK_AUDIENCE)}
+        decode_kwargs = {
+            "key": signing_key.key,
+            "algorithms": [CLERK_JWT_ALGORITHM],
+            "options": options,
+        }
+        if CLERK_AUDIENCE:
+            decode_kwargs["audience"] = CLERK_AUDIENCE
+        if CLERK_ISSUER:
+            decode_kwargs["issuer"] = CLERK_ISSUER
+        payload = jwt.decode(token, **decode_kwargs)
+    except jwt.PyJWTError as e:
+        logger.warning("JWT verification failed: %s", e)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except Exception as e:
+        logger.error("Token verification error: %s", e)
+        raise HTTPException(status_code=500, detail="Token verification error")
+
+    user_id = payload.get("sub")
+    tenant_id = payload.get("org_id") or payload.get("orgId") or user_id
+    if not user_id or not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+
+    return AuthContext(
+        user_id=user_id,
+        tenant_id=tenant_id,
+        email=payload.get("email") or payload.get("email_address"),
+        role=payload.get("org_role"),
+    )
+
+
+def get_current_identity(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> AuthContext:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+    return decode_clerk_token(credentials.credentials)
+
+
+def get_ws_identity(websocket: WebSocket) -> AuthContext:
+    token = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1]
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    return decode_clerk_token(token)
 
 
 class TrainJobRequest(BaseModel):
@@ -148,12 +208,17 @@ async def on_shutdown():
         redis_client = None
 
 
+@app.get("/auth/me", response_model=AuthContext)
+async def me(identity: AuthContext = Depends(get_current_identity)):
+    return identity
+
+
 @app.post("/jobs/train")
 async def submit_training_job(
     req: TrainJobRequest,
-    identity: tuple[str, str] = Depends(resolve_identity),
+    identity: AuthContext = Depends(get_current_identity),
 ):
-    tenant_id, user_id = identity
+    tenant_id, user_id = identity.tenant_id, identity.user_id
     job_id = str(uuid.uuid4())
     job_name = f"train-{job_id[:8]}"
     config_map_name = f"{job_name}-config"
@@ -201,9 +266,9 @@ async def submit_training_job(
 @app.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: str,
-    identity: tuple[str, str] = Depends(resolve_identity),
+    identity: AuthContext = Depends(get_current_identity),
 ):
-    tenant_id, user_id = identity
+    tenant_id, user_id = identity.tenant_id, identity.user_id
     row = await fetch_job(tenant_id, job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -229,9 +294,9 @@ async def cancel_job(
 @app.post("/jobs/{job_id}/retry")
 async def retry_job(
     job_id: str,
-    identity: tuple[str, str] = Depends(resolve_identity),
+    identity: AuthContext = Depends(get_current_identity),
 ):
-    tenant_id, user_id = identity
+    tenant_id, user_id = identity.tenant_id, identity.user_id
     row = await fetch_job(tenant_id, job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -276,9 +341,9 @@ async def retry_job(
 @app.get("/jobs", response_model=List[JobSummary])
 async def list_jobs(
     limit: int = 100,
-    identity: tuple[str, str] = Depends(resolve_identity),
+    identity: AuthContext = Depends(get_current_identity),
 ):
-    tenant_id, _ = identity
+    tenant_id = identity.tenant_id
     rows = await fetch_jobs(tenant_id, limit=limit)
     summaries: List[JobSummary] = []
 
@@ -305,9 +370,9 @@ async def list_jobs(
 @app.get("/jobs/{job_id}", response_model=JobSummary)
 async def get_job(
     job_id: str,
-    identity: tuple[str, str] = Depends(resolve_identity),
+    identity: AuthContext = Depends(get_current_identity),
 ) -> JobSummary:
-    tenant_id, _ = identity
+    tenant_id = identity.tenant_id
     row = await fetch_job(tenant_id, job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -330,12 +395,12 @@ async def get_job(
 async def ws_job_stream(websocket: WebSocket, job_id: str):
     await websocket.accept()
     try:
-        tenant_id, _ = resolve_ws_identity(websocket)
+        identity = get_ws_identity(websocket)
     except HTTPException:
         await websocket.close(code=1008)
         return
 
-    row = await fetch_job(tenant_id, job_id)
+    row = await fetch_job(identity.tenant_id, job_id)
     if not row:
         await websocket.close(code=1008)
         return
@@ -366,7 +431,7 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
                 event_out = JobEventOut.model_validate(event)
             except ValidationError:
                 continue
-            if event_out.tenant_id != tenant_id:
+            if event_out.tenant_id != identity.tenant_id:
                 continue
 
             await websocket.send_json(event_out.model_dump())
@@ -395,7 +460,7 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
 async def ws_jobs_stream(websocket: WebSocket):
     await websocket.accept()
     try:
-        tenant_id, _ = resolve_ws_identity(websocket)
+        identity = get_ws_identity(websocket)
     except HTTPException:
         await websocket.close(code=1008)
         return
@@ -423,7 +488,7 @@ async def ws_jobs_stream(websocket: WebSocket):
                 event_out = JobEventOut.model_validate(event)
             except ValidationError:
                 continue
-            if event_out.tenant_id != tenant_id:
+            if event_out.tenant_id != identity.tenant_id:
                 continue
 
             await websocket.send_json(event_out.model_dump())
@@ -452,9 +517,9 @@ async def get_job_events(
     job_id: str,
     since_id: int = 0,
     limit: int = 5000,
-    identity: tuple[str, str] = Depends(resolve_identity),
+    identity: AuthContext = Depends(get_current_identity),
 ):
-    tenant_id, _ = identity
+    tenant_id = identity.tenant_id
     prior_state: EventJobState | None = None
     if since_id > 0:
         prior_types = await fetch_job_event_types_until(

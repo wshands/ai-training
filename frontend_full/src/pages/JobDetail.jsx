@@ -6,6 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import JobStatusBadge from '../components/JobStatusBadge';
 import LogPanel from '../components/LogPanel';
 import Spinner from '../components/Spinner';
+import { useClerkToken } from '../hooks/useClerkToken';
 import { EventType } from '../constants/eventTypes';
 import {
   LineChart,
@@ -132,7 +133,10 @@ const parseHistoryEvents = (events) => {
 
 
 
-  const wsUrl = `${WS_BASE_URL}/ws/jobs/${jobId}`;
+  const token = useClerkToken();
+  const wsUrl = token
+    ? `${WS_BASE_URL}/ws/jobs/${jobId}?token=${encodeURIComponent(token)}`
+    : null;
 
   const applyEvent = (ev) => {
     const t = (ev?.event_type || '').toUpperCase();

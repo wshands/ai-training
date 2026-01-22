@@ -14,4 +14,7 @@ ENV PYTHONPATH=/app
 
 EXPOSE 5679
 
-CMD ["python","-m","debugpy","--listen","0.0.0.0:5679","--wait-for-client","/app/event-processor/event_processor.py"]
+COPY event-processor/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]

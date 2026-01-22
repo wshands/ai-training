@@ -5,3 +5,4 @@ aiokafka
 asyncpg
 kubernetes
 redis[asyncio]
+PyJWT[crypto]

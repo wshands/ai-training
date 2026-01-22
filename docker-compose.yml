@@ -111,6 +111,16 @@ services:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
       REDIS_URL: redis://redis:6379/0
+
+      # The debugger will wait for a debugger to attach at port 5679
+      # but this doesn't work with Clerk auth flows, so disabled for now.
+      # Don't try to connect to the debugger through VSCode,
+      # just run the UI with npm start     
+      WAIT_FOR_DEBUGGER: "0"
+
+      CLERK_JWKS_URL: https://bursting-asp-1.clerk.accounts.dev/.well-known/jwks.json
+      CLERK_ISSUER: https://bursting-asp-1.clerk.accounts.dev
+      CLERK_JWT_ALGORITHM: RS256
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -156,6 +166,11 @@ services:
       KAFKA_BOOTSTRAP: kafka:9092
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
       REDIS_URL: redis://redis:6379/0
+      # The debugger will wait for a debugger to attach at port 5679
+      # but this doesn't work with Clerk auth flows, so disabled for now.
+      # Don't try to connect to the debugger through VSCode,
+      # just run the UI with npm start
+      WAIT_FOR_DEBUGGER: "0"
     depends_on:
       db-init:
         condition: service_completed_successfully

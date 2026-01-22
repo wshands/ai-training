@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, handleApiError } from '../hooks/useApi';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { WS_BASE_URL } from '../config';
+import { useClerkToken } from '../hooks/useClerkToken';
 import JobStatusBadge from '../components/JobStatusBadge';
 import Spinner from '../components/Spinner';
 
@@ -25,7 +26,8 @@ const Dashboard = () => {
     fetchJobs();
   }, []);
 
-  const wsUrl = `${WS_BASE_URL}/ws/jobs`;
+  const token = useClerkToken();
+  const wsUrl = token ? `${WS_BASE_URL}/ws/jobs?token=${encodeURIComponent(token)}` : null;
   useWebSocket(wsUrl, (msg) => {
     const jobId = msg?.job_id;
     if (!jobId) return;
