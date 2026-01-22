@@ -34,6 +34,7 @@ from kubernetes import client, config as k8s_config
 from pydantic import BaseModel, Field, ValidationError
 from typing import Any, Dict, List, Optional
 import jwt
+from jwt import PyJWKClientError
 
 #from fastapi import WebSocket
 from common.ai_training_common.config import (
@@ -136,6 +137,9 @@ def decode_clerk_token(token: str) -> AuthContext:
         if CLERK_ISSUER:
             decode_kwargs["issuer"] = CLERK_ISSUER
         payload = jwt.decode(token, **decode_kwargs)
+    except PyJWKClientError as e:
+        logger.error("JWKS fetch/parse error: %s", e)
+        raise HTTPException(status_code=503, detail="Auth key retrieval failed")
     except jwt.PyJWTError as e:
         logger.warning("JWT verification failed: %s", e)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { ClerkProvider, useAuth } from '@clerk/clerk-react';
 import Navbar from './components/Navbar';
 import RequireAuth from './components/RequireAuth';
+import AuthGate from './components/AuthGate';
 import Dashboard from './pages/Dashboard';
 import NewJobWizard from './pages/NewJobWizard';
 import JobDetail from './pages/JobDetail';
@@ -10,6 +11,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import OrgSelect from './pages/OrgSelect';
 import { setTokenGetter } from './auth';
+import AuthDebug from './components/AuthDebug';
 
 const AuthTokenBridge = () => {
   const { getToken } = useAuth();
@@ -19,27 +21,10 @@ const AuthTokenBridge = () => {
   return null;
 };
 
-const SignedInRedirect = () => {
-  const { isLoaded, sessionId } = useAuth();
-  if (!isLoaded) return null;
-  if (!sessionId) return null;
-  return (
-    <div className="max-w-md mx-auto text-sm text-slate-300">
-      You are already signed in. Redirecting…
-      <Navigate to="/" replace />
-    </div>
-  );
-};
-
 const SignedOutOnly = ({ children }) => {
-  const { isLoaded, isSignedIn, sessionId } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   if (!isLoaded) return null;
-  if (!isSignedIn && sessionId) {
-    return <Navigate to="/" replace />;
-  }
-  if (isSignedIn) {
-    return <SignedInRedirect />;
-  }
+  if (isSignedIn) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -68,9 +53,9 @@ const AppRoutes = () => (
           <Route
             path="/select-org"
             element={
-              <RequireAuth requireOrg={false}>
+              <AuthGate>
                 <OrgSelect />
-              </RequireAuth>
+              </AuthGate>
             }
           />
           <Route
@@ -98,6 +83,7 @@ const AppRoutes = () => (
             }
           />
         </Routes>
+        <AuthDebug />
       </div>
     </main>
   </div>
