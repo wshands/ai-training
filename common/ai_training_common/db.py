@@ -103,7 +103,7 @@ async def persist_initial_job(job_id: str, config: dict, tenant_id: str, user_id
         )
 
 
-async def fetch_jobs(tenant_id: str, limit: int = 100) -> List[asyncpg.Record]:
+async def fetch_jobs(tenant_id: str, limit: int = 100, offset: int = 0) -> List[asyncpg.Record]:
     global pool
     if pool is None:
         await init_db()
@@ -125,9 +125,11 @@ async def fetch_jobs(tenant_id: str, limit: int = 100) -> List[asyncpg.Record]:
             WHERE j.tenant_id = $1
             ORDER BY j.created_at DESC
             LIMIT $2
+            OFFSET $3
             """,
             tenant_id,
             limit,
+            offset,
         )
     return rows
 
@@ -199,6 +201,79 @@ async def fetch_job_events_since(
             tenant_id,
             job_id,
             last_id,
+            limit,
+        )
+    return rows
+
+
+async def fetch_job_events_before(
+    tenant_id: str,
+    job_id: str,
+    before_id: int,
+    limit: int = 500,
+) -> List[asyncpg.Record]:
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+            id,
+            job_id,
+            tenant_id,
+            user_id,
+            event_time,
+            event_type,
+            seq,
+            producer,
+            schema_version,
+            payload
+            FROM job_events
+            WHERE tenant_id = $1
+            AND job_id = $2
+            AND id < $3
+            ORDER BY id DESC
+            LIMIT $4
+            """,
+            tenant_id,
+            job_id,
+            before_id,
+            limit,
+        )
+    return rows
+
+
+async def fetch_job_events_latest(
+    tenant_id: str,
+    job_id: str,
+    limit: int = 200,
+) -> List[asyncpg.Record]:
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+            id,
+            job_id,
+            tenant_id,
+            user_id,
+            event_time,
+            event_type,
+            seq,
+            producer,
+            schema_version,
+            payload
+            FROM job_events
+            WHERE tenant_id = $1
+            AND job_id = $2
+            ORDER BY id DESC
+            LIMIT $3
+            """,
+            tenant_id,
+            job_id,
             limit,
         )
     return rows

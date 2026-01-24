@@ -53,6 +53,8 @@ from common.ai_training_common.db import (
     persist_initial_job,
     fetch_jobs,
     fetch_job_events_since,
+    fetch_job_events_before,
+    fetch_job_events_latest,
     fetch_job_event_types_until,
     fetch_job,
 )
@@ -89,6 +91,11 @@ class AuthContext(BaseModel):
     tenant_id: str
     email: Optional[str] = None
     role: Optional[str] = None
+
+DEFAULT_JOBS_LIMIT = 50
+MAX_JOBS_LIMIT = 200
+DEFAULT_EVENTS_LIMIT = 500
+MAX_EVENTS_LIMIT = 2000
 
 app = FastAPI(title="AI Platform Control Plane")
 
@@ -344,11 +351,14 @@ async def retry_job(
 
 @app.get("/jobs", response_model=List[JobSummary])
 async def list_jobs(
-    limit: int = 100,
+    limit: int = DEFAULT_JOBS_LIMIT,
+    offset: int = 0,
     identity: AuthContext = Depends(get_current_identity),
 ):
     tenant_id = identity.tenant_id
-    rows = await fetch_jobs(tenant_id, limit=limit)
+    safe_limit = max(1, min(limit, MAX_JOBS_LIMIT))
+    safe_offset = max(0, offset)
+    rows = await fetch_jobs(tenant_id, limit=safe_limit, offset=safe_offset)
     summaries: List[JobSummary] = []
 
     for r in rows:
@@ -519,30 +529,12 @@ async def ws_jobs_stream(websocket: WebSocket):
             pass
 
 
-@app.get("/jobs/{job_id}/events")
-async def get_job_events(
-    job_id: str,
-    since_id: int = 0,
-    limit: int = 5000,
-    identity: AuthContext = Depends(get_current_identity),
-):
-    tenant_id = identity.tenant_id
-    prior_state: EventJobState | None = None
-    if since_id > 0:
-        prior_types = await fetch_job_event_types_until(
-            tenant_id=tenant_id,
-            job_id=job_id,
-            up_to_id=since_id,
-        )
-        for event_type in prior_types:
-            prior_state = apply_event(prior_state, event_type)
-
-    rows = await fetch_job_events_since(
-        tenant_id=tenant_id,
-        job_id=job_id,
-        last_id=since_id,
-        limit=limit,
-    )
+def _render_job_events(
+    rows: List[Dict[str, Any]],
+    *,
+    include_state: bool,
+    prior_state: EventJobState | None,
+) -> List[Dict[str, Any]]:
     out = []
     state = prior_state
     for r in rows:
@@ -551,7 +543,12 @@ async def get_job_events(
             data = json.loads(data)
 
         event_type = r["event_type"]
-        state = apply_event(state, event_type)
+        if include_state:
+            state = apply_event(state, event_type)
+            state_value = state.value
+        else:
+            state_value = ""
+
         event_time = r["event_time"]
         event_time_iso = event_time.isoformat() if event_time else ""
         ts_ms = int(event_time.timestamp() * 1000) if event_time else 0
@@ -569,7 +566,87 @@ async def get_job_events(
                 producer=r["producer"] or "unknown",
                 schema_version=int(r["schema_version"] or 1),
                 data=data or {},
-                state=state.value,
+                state=state_value,
             ).model_dump()
         )
     return out
+
+
+@app.get("/jobs/{job_id}/events")
+async def get_job_events(
+    job_id: str,
+    since_id: int = 0,
+    before_id: int | None = None,
+    limit: int = DEFAULT_EVENTS_LIMIT,
+    include_state: bool = True,
+    identity: AuthContext = Depends(get_current_identity),
+):
+    tenant_id = identity.tenant_id
+    safe_limit = max(1, min(limit, MAX_EVENTS_LIMIT))
+
+    prior_state: EventJobState | None = None
+    if include_state:
+        if before_id is not None and before_id > 0:
+            prior_types = await fetch_job_event_types_until(
+                tenant_id=tenant_id,
+                job_id=job_id,
+                up_to_id=before_id - 1,
+            )
+            for event_type in prior_types:
+                prior_state = apply_event(prior_state, event_type)
+        elif since_id > 0:
+            prior_types = await fetch_job_event_types_until(
+                tenant_id=tenant_id,
+                job_id=job_id,
+                up_to_id=since_id,
+            )
+            for event_type in prior_types:
+                prior_state = apply_event(prior_state, event_type)
+
+    if before_id is not None:
+        rows = await fetch_job_events_before(
+            tenant_id=tenant_id,
+            job_id=job_id,
+            before_id=before_id,
+            limit=safe_limit,
+        )
+        rows = sorted(rows, key=lambda r: int(r["id"]))
+    else:
+        rows = await fetch_job_events_since(
+            tenant_id=tenant_id,
+            job_id=job_id,
+            last_id=since_id,
+            limit=safe_limit,
+        )
+    return _render_job_events(rows, include_state=include_state, prior_state=prior_state)
+
+
+@app.get("/jobs/{job_id}/events/latest")
+async def get_latest_job_events(
+    job_id: str,
+    limit: int = DEFAULT_EVENTS_LIMIT,
+    include_state: bool = False,
+    identity: AuthContext = Depends(get_current_identity),
+):
+    tenant_id = identity.tenant_id
+    safe_limit = max(1, min(limit, MAX_EVENTS_LIMIT))
+    rows = await fetch_job_events_latest(
+        tenant_id=tenant_id,
+        job_id=job_id,
+        limit=safe_limit,
+    )
+    rows = sorted(rows, key=lambda r: int(r["id"]))
+
+    prior_state: EventJobState | None = None
+    if include_state and rows:
+        oldest_id = int(rows[0]["id"])
+        if oldest_id > 1:
+            prior_types = await fetch_job_event_types_until(
+                tenant_id=tenant_id,
+                job_id=job_id,
+                up_to_id=oldest_id - 1,
+            )
+            for event_type in prior_types:
+                prior_state = apply_event(prior_state, event_type)
+
+    return _render_job_events(rows, include_state=include_state, prior_state=prior_state)

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, handleApiError } from '../hooks/useApi';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -8,23 +8,43 @@ import JobStatusBadge from '../components/JobStatusBadge';
 import Spinner from '../components/Spinner';
 
 const Dashboard = () => {
+  const pageSize = 50;
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState('');
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
 
-  useEffect(() => {
-    const fetchJobs = async () => {
+  const fetchJobs = useCallback(
+    async (nextOffset = 0) => {
+      if (nextOffset === 0) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+      setErr('');
       try {
-        const res = await api.get('/jobs');
-        setJobs(res.data || []);
+        const res = await api.get('/jobs', {
+          params: { limit: pageSize, offset: nextOffset },
+        });
+        const data = res.data || [];
+        setJobs((prev) => (nextOffset === 0 ? data : [...prev, ...data]));
+        setHasMore(data.length === pageSize);
+        setOffset(nextOffset + data.length);
       } catch (e) {
         setErr(handleApiError(e));
       } finally {
         setLoading(false);
+        setLoadingMore(false);
       }
-    };
-    fetchJobs();
-  }, []);
+    },
+    [pageSize]
+  );
+
+  useEffect(() => {
+    fetchJobs(0);
+  }, [fetchJobs]);
 
   const token = useClerkToken();
   const wsUrl = token ? `${WS_BASE_URL}/ws/jobs?token=${encodeURIComponent(token)}` : null;
@@ -79,49 +99,66 @@ const Dashboard = () => {
       )}
 
       {jobs.length > 0 && (
-        <div className="border border-slate-800 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-900/80">
-              <tr>
-                <th className="px-3 py-2 text-left">Job ID</th>
-                <th className="px-3 py-2 text-left">Model</th>
-                <th className="px-3 py-2 text-left">Dataset</th>
-                <th className="px-3 py-2 text-left">Status</th>
-                <th className="px-3 py-2 text-left">Last Error</th>
-                <th className="px-3 py-2 text-left">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((job) => (
-                <tr key={job.job_id} className="border-t border-slate-800/70">
-                  <td className="px-3 py-2 font-mono text-xs">
-                    <Link
-                      to={`/jobs/${job.job_id}`}
-                      className="text-sky-400 hover:underline"
-                    >
-                      {job.job_id}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2">
-                    {job.config?.model_id || job.model_id || '—'}
-                  </td>
-                  <td className="px-3 py-2">
-                    {job.config?.dataset_id || job.dataset_id || '—'}
-                  </td>
-                  <td className="px-3 py-2">
-                    <JobStatusBadge status={job.status} />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-rose-300">
-                    {job.last_error?.message || job.last_error?.type || ''}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-400">
-                    {job.created_at || ''}
-                  </td>
+        <>
+          <div className="border border-slate-800 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-900/80">
+                <tr>
+                  <th className="px-3 py-2 text-left">Job ID</th>
+                  <th className="px-3 py-2 text-left">Model</th>
+                  <th className="px-3 py-2 text-left">Dataset</th>
+                  <th className="px-3 py-2 text-left">Status</th>
+                  <th className="px-3 py-2 text-left">Last Error</th>
+                  <th className="px-3 py-2 text-left">Created</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.job_id} className="border-t border-slate-800/70">
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <Link
+                        to={`/jobs/${job.job_id}`}
+                        className="text-sky-400 hover:underline"
+                      >
+                        {job.job_id}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      {job.config?.model_id || job.model_id || '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      {job.config?.dataset_id || job.dataset_id || '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <JobStatusBadge status={job.status} />
+                    </td>
+                    <td className="px-3 py-2 text-xs text-rose-300">
+                      {job.last_error?.message || job.last_error?.type || ''}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-400">
+                      {job.created_at || ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {hasMore && (
+            <div className="flex justify-center mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setErr('');
+                  fetchJobs(offset);
+                }}
+                className="px-3 py-1.5 rounded-md border border-slate-700 text-sm text-slate-200 hover:border-slate-500"
+                disabled={loadingMore}
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

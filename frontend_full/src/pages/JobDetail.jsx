@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, handleApiError } from '../hooks/useApi';
 import { WS_BASE_URL } from '../config';
@@ -19,20 +19,6 @@ import {
   Label,
   ResponsiveContainer,
 } from 'recharts';
-
-const JobDetail = () => {
-  const { jobId } = useParams();
-  const navigate = useNavigate();
-  const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
-  const [retryErr, setRetryErr] = useState('');
-  const [retrying, setRetrying] = useState(false);
-  const [logs, setLogs] = useState([]);
-  const [metrics, setMetrics] = useState([]);
-  const [lastError, setLastError] = useState(null);
-  const [xAxisInfo, setXAxisInfo] = useState({ hasStep: false, hasEpoch: false });
-
 
 const parseHistoryEvents = (events) => {
   const logs = [];
@@ -81,12 +67,41 @@ const parseHistoryEvents = (events) => {
   return { logs, metrics, lastStatus, lastError, hasStep, hasEpoch };
 };
 
+const JobDetail = () => {
+  const { jobId } = useParams();
+  const navigate = useNavigate();
+  const [job, setJob] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [retryErr, setRetryErr] = useState('');
+  const [retrying, setRetrying] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [metrics, setMetrics] = useState([]);
+  const [lastError, setLastError] = useState(null);
+  const [xAxisInfo, setXAxisInfo] = useState({ hasStep: false, hasEpoch: false });
+  const [historyEvents, setHistoryEvents] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyOldestId, setHistoryOldestId] = useState(null);
+
+  const historyPageSize = 100;
+
 
   //  This ensures:
   // loading starts true
   // After the HTTP call finishes (success or error), loading becomes false
   // On success, job is a full object { id, status, config, model_id, dataset_id, ... }
   // So the UI can render even if WS isn’t doing anything yet.
+  const applyHistory = useCallback((events) => {
+    const { logs, metrics, lastStatus, lastError, hasStep, hasEpoch } =
+      parseHistoryEvents(events);
+    setLogs(logs.slice(-500));
+    setMetrics(metrics);
+    setLastError(lastError);
+    setXAxisInfo({ hasStep, hasEpoch });
+    return lastStatus;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -95,26 +110,30 @@ const parseHistoryEvents = (events) => {
       setErr('');
       setLogs([]);
       setMetrics([]);
+      setHistoryEvents([]);
+      setHistoryOldestId(null);
+      setHistoryHasMore(false);
 
       try {
         const [jobRes, evRes] = await Promise.all([
           api.get(`/jobs/${jobId}`),
-          api.get(`/jobs/${jobId}/events?since_id=0&limit=5000`),
+          api.get(`/jobs/${jobId}/events/latest`, {
+            params: { limit: historyPageSize, include_state: false },
+          }),
         ]);
 
         if (cancelled) return;
 
         const jobData = jobRes.data;
         const events = evRes.data || [];
+        const oldestId = events.length ? events[0]?.id : null;
 
-        const { logs, metrics, lastStatus, lastError, hasStep, hasEpoch } =
-          parseHistoryEvents(events);
+        applyHistory(events);
 
-        setJob(lastStatus ? { ...jobData, status: jobData.status || lastStatus } : jobData);
-        setLogs(logs.slice(-500));
-        setMetrics(metrics);
-        setLastError(lastError);
-        setXAxisInfo({ hasStep, hasEpoch });
+        setJob(jobData);
+        setHistoryEvents(events);
+        setHistoryOldestId(oldestId);
+        setHistoryHasMore(events.length === historyPageSize && oldestId > 1);
 
       } catch (e) {
         if (cancelled) return;
@@ -128,7 +147,33 @@ const parseHistoryEvents = (events) => {
     return () => {
       cancelled = true;
     };
-  }, [jobId]);
+  }, [applyHistory, historyPageSize, jobId]);
+
+  const loadOlderEvents = useCallback(async () => {
+    if (!historyOldestId || historyLoading) return;
+    setHistoryLoading(true);
+    setErr('');
+    try {
+      const res = await api.get(`/jobs/${jobId}/events`, {
+        params: {
+          before_id: historyOldestId,
+          limit: historyPageSize,
+          include_state: false,
+        },
+      });
+      const older = res.data || [];
+      const nextEvents = [...older, ...historyEvents];
+      setHistoryEvents(nextEvents);
+      const nextOldest = older.length ? older[0]?.id : historyOldestId;
+      setHistoryOldestId(nextOldest);
+      setHistoryHasMore(older.length === historyPageSize && nextOldest > 1);
+      applyHistory(nextEvents);
+    } catch (e) {
+      setErr(handleApiError(e));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [applyHistory, historyEvents, historyLoading, historyOldestId, historyPageSize, jobId]);
 
 
 
@@ -144,6 +189,7 @@ const parseHistoryEvents = (events) => {
 
     if (t === EventType.JOB_LOG && d.message) {
       setLogs((prev) => [...prev, d.message].slice(-500));
+      setHistoryEvents((prev) => [...prev, ev]);
       return;
     }
 
@@ -163,18 +209,21 @@ const parseHistoryEvents = (events) => {
           next.sort((a, b) => (a.step ?? 0) - (b.step ?? 0));
           return next;
         });
+        setHistoryEvents((prev) => [...prev, ev]);
       }
       return;
     }
 
     if (t === EventType.JOB_FAILED) {
       setLastError(d?.error || d);
+      setHistoryEvents((prev) => [...prev, ev]);
     }
 
     if (t.startsWith('JOB_')) {
       const status = ev?.state || t.replace('JOB_', '');
       setJob((prev) => (prev ? { ...prev, status } : { id: jobId, status, config: {} }));
     }
+    setHistoryEvents((prev) => [...prev, ev]);
   };
 
   useWebSocket(
@@ -312,7 +361,19 @@ const parseHistoryEvents = (events) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div>
-          <h2 className="text-sm font-semibold mb-2">Logs</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold">Logs</h2>
+            {historyHasMore && (
+              <button
+                type="button"
+                onClick={loadOlderEvents}
+                className="text-xs text-slate-300 hover:text-white border border-slate-700 rounded px-2 py-1"
+                disabled={historyLoading}
+              >
+                {historyLoading ? 'Loading…' : 'Load earlier'}
+              </button>
+            )}
+          </div>
           <LogPanel lines={logs} />
         </div>
         <div>
