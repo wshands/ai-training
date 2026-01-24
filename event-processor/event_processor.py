@@ -61,6 +61,8 @@ POSTGRES_DSN = os.environ.get(
     "postgresql://postgres:postgres@postgres:5432/controlplane",
 )
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+EVENT_RETENTION_DAYS = int(os.environ.get("EVENT_RETENTION_DAYS", "30"))
+EVENT_PRUNE_INTERVAL_SECONDS = int(os.environ.get("EVENT_PRUNE_INTERVAL_SECONDS", "3600"))
 
 MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
 
@@ -404,8 +406,32 @@ async def start_consumer_with_retry(consumer, tries: int = 60) -> None:
 
 
 async def publish_ws_event(r: redis.Redis, out: JobEventOut) -> None:
-    channel = f"job_events:{out.job_id}"
+    channel = f"job_events:{out.tenant_id}"
     await r.publish(channel, out.model_dump_json())
+
+
+async def prune_old_events_loop(dsn: str) -> None:
+    if EVENT_RETENTION_DAYS <= 0:
+        logger.info("Event retention disabled; skipping prune loop")
+        return
+
+    conn = await asyncpg.connect(dsn)
+    try:
+        while True:
+            try:
+                result = await conn.execute(
+                    """
+                    DELETE FROM job_events
+                    WHERE event_time < now() - ($1::text || ' days')::interval
+                    """,
+                    str(EVENT_RETENTION_DAYS),
+                )
+                logger.info("Pruned old job_events: %s", result)
+            except Exception:
+                logger.exception("Failed to prune old job_events")
+            await asyncio.sleep(EVENT_PRUNE_INTERVAL_SECONDS)
+    finally:
+        await conn.close()
 
 
 async def main() -> None:
@@ -415,6 +441,7 @@ async def main() -> None:
     conn = await asyncpg.connect(POSTGRES_DSN)
     await wait_for_postgres(conn, timeout_s=60)
     await wait_for_schema(conn, timeout_s=60)
+    asyncio.create_task(prune_old_events_loop(POSTGRES_DSN))
 
     consumer = AIOKafkaConsumer(
         IN_TOPIC,

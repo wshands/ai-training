@@ -416,7 +416,7 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
 
     r = redis_client  # type: ignore
     pubsub = r.pubsub()
-    channel = f"job_events:{job_id}"
+    channel = f"job_events:{identity.tenant_id}"
     await pubsub.subscribe(channel)
 
     try:
@@ -436,6 +436,8 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
             except ValidationError:
                 continue
             if event_out.tenant_id != identity.tenant_id:
+                continue
+            if event_out.job_id != job_id:
                 continue
 
             await websocket.send_json(event_out.model_dump())
@@ -475,7 +477,8 @@ async def ws_jobs_stream(websocket: WebSocket):
 
     r = redis_client  # type: ignore
     pubsub = r.pubsub()
-    await pubsub.psubscribe("job_events:*")
+    channel = f"job_events:{identity.tenant_id}"
+    await pubsub.subscribe(channel)
 
     try:
         async for message in pubsub.listen():
@@ -507,7 +510,7 @@ async def ws_jobs_stream(websocket: WebSocket):
             pass
     finally:
         try:
-            await pubsub.punsubscribe("job_events:*")
+            await pubsub.unsubscribe(channel)
         except Exception:
             pass
         try:

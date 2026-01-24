@@ -35,7 +35,10 @@ To build the (data plane) job launcher and training job in minikube:
 eval $(minikube docker-env)
 docker build -t ai-platform-job-launcher:latest ./job-launcher
 docker build -f training-job/Dockerfile -t ai-platform-training-job:latest .
+```
 
+To delete old training jobs
+```bash
 kubectl get jobs,pods -n training-jobs -o name \                 
   | grep '^.*/train-' \      
   | xargs kubectl delete -n training-jobs
@@ -90,6 +93,10 @@ To start UI not using VSCode:
  npm start
 ```
 
+Auth note (Clerk):
+- If password sign-in hangs on `/login/factor-two`, disable **Client Trust** in Clerk (User & authentication → Password) for dev.
+- Test emails (`+clerk_test`) use code `424242` for email verification flows.
+
 If using VSCode and Dockerfile.dev start debugging by picking the "UI + Attach backend (Docker)" (see .vscode/launch.json)
 
 To see API:
@@ -111,4 +118,3 @@ To bring down the cluster and delete all data:
 ```bash
  minikube delete
 ```
-
