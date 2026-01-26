@@ -178,10 +178,12 @@ const JobDetail = () => {
 
 
 
-  const token = useClerkToken();
-  const wsUrl = token
-    ? `${WS_BASE_URL}/ws/jobs/${jobId}?token=${encodeURIComponent(token)}`
-    : null;
+  const { getFreshToken } = useClerkToken();
+  const getWsUrl = useCallback(async () => {
+    const token = await getFreshToken();
+    if (!token) return null;
+    return `${WS_BASE_URL}/ws/jobs/${jobId}?token=${encodeURIComponent(token)}`;
+  }, [getFreshToken, jobId]);
 
   const applyEvent = (ev) => {
     const t = (ev?.event_type || '').toUpperCase();
@@ -227,7 +229,7 @@ const JobDetail = () => {
   };
 
   useWebSocket(
-    wsUrl,
+    getWsUrl,
     (msg) => {
       console.log("JobDetail received ws msg", msg);
       applyEvent(msg);

@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 
 export const useClerkToken = () => {
   const { getToken, isSignedIn } = useAuth();
   const [token, setToken] = useState(null);
+
+  const getFreshToken = useCallback(async () => {
+    if (!isSignedIn) return null;
+    return await getToken();
+  }, [getToken, isSignedIn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -15,7 +20,7 @@ export const useClerkToken = () => {
     }
 
     const loadToken = async () => {
-      const next = await getToken();
+      const next = await getFreshToken();
       if (!cancelled) setToken(next);
     };
 
@@ -23,7 +28,7 @@ export const useClerkToken = () => {
     return () => {
       cancelled = true;
     };
-  }, [getToken, isSignedIn]);
+  }, [getFreshToken, isSignedIn]);
 
-  return token;
+  return { token, getFreshToken, isSignedIn };
 };

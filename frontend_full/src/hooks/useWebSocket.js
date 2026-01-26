@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
-export const useWebSocket = (url, onMessage, options = {}) => {
+export const useWebSocket = (urlOrFactory, onMessage, options = {}) => {
   const { reconnectInterval = 2000, maxReconnectAttempts = 8 } = options;
   const [status, setStatus] = useState('disconnected');
   const wsRef = useRef(null);
   const retryCountRef = useRef(0);
+  const urlRef = useRef(urlOrFactory);
 
   // ❗ Problem: onMessage is a dependency of useEffect below.
   // That inline (msg) => { ... } is a brand-new function on every render, so onMessage in the dependency array is always “changed”. React then:
@@ -22,13 +23,40 @@ export const useWebSocket = (url, onMessage, options = {}) => {
   }, [onMessage]);                                  // ⭐ NEW
 
   useEffect(() => {
-    if (!url) return;
+    urlRef.current = urlOrFactory;
+  }, [urlOrFactory]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    const connect = () => {
+    const resolveUrl = async () => {
+      const current = urlRef.current;
+      if (typeof current === 'function') {
+        return await current();
+      }
+      return current;
+    };
+
+    const scheduleReconnect = () => {
+      if (retryCountRef.current < maxReconnectAttempts) {
+        retryCountRef.current += 1;
+        const delay = reconnectInterval * retryCountRef.current;
+        setTimeout(connect, delay);
+      }
+    };
+
+    const connect = async () => {
       if (cancelled) return;
       setStatus('connecting');
-      const ws = new WebSocket(url);
+      const nextUrl = await resolveUrl();
+      if (cancelled) return;
+      if (!nextUrl) {
+        setStatus('disconnected');
+        scheduleReconnect();
+        return;
+      }
+
+      const ws = new WebSocket(nextUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -56,11 +84,7 @@ export const useWebSocket = (url, onMessage, options = {}) => {
       ws.onclose = () => {
         if (cancelled) return;
         setStatus('disconnected');
-        if (retryCountRef.current < maxReconnectAttempts) {
-          retryCountRef.current += 1;
-          const delay = reconnectInterval * retryCountRef.current;
-          setTimeout(connect, delay);
-        }
+        scheduleReconnect();
       };
     };
 
@@ -68,12 +92,15 @@ export const useWebSocket = (url, onMessage, options = {}) => {
 
     return () => {
       cancelled = true;
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (
+        wsRef.current &&
+        (wsRef.current.readyState === WebSocket.OPEN ||
+          wsRef.current.readyState === WebSocket.CONNECTING)
+      ) {
         wsRef.current.close();
       }
     };
-  }, [url, reconnectInterval, maxReconnectAttempts]);  // ❗ removed onMessage
+  }, [reconnectInterval, maxReconnectAttempts]);  // ❗ removed onMessage and url
 
   return { status, ws: wsRef.current };
 };
-

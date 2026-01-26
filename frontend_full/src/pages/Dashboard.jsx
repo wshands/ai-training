@@ -46,9 +46,13 @@ const Dashboard = () => {
     fetchJobs(0);
   }, [fetchJobs]);
 
-  const token = useClerkToken();
-  const wsUrl = token ? `${WS_BASE_URL}/ws/jobs?token=${encodeURIComponent(token)}` : null;
-  useWebSocket(wsUrl, (msg) => {
+  const { getFreshToken } = useClerkToken();
+  const getWsUrl = useCallback(async () => {
+    const token = await getFreshToken();
+    if (!token) return null;
+    return `${WS_BASE_URL}/ws/jobs?token=${encodeURIComponent(token)}`;
+  }, [getFreshToken]);
+  useWebSocket(getWsUrl, (msg) => {
     const jobId = msg?.job_id;
     if (!jobId) return;
     const state = msg?.state;
