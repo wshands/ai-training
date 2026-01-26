@@ -1,3 +1,5 @@
+"""Launch Kubernetes training jobs in response to Kafka events."""
+
 import logging
 import os
 # Why put logging setup outside main()?
@@ -8,6 +10,7 @@ import os
 # logging with your settings. This is useful in container apps because frameworks
 # (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
 def setup_logging() -> None:
+    """Configure process-wide logging with an env-driven log level."""
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
@@ -32,6 +35,7 @@ TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "ai-platform-training-job:late
 TRAINING_NAMESPACE = os.environ.get("TRAINING_NAMESPACE", "training-jobs")
 
 async def process_job_submitted(ev):
+    """Create a Kubernetes Job and ConfigMap for a submitted job event."""
     job_id = ev["job_id"]
     cfg = (ev.get("payload") or {}).get("config") or ev.get("config")
     job_name = f"train-{job_id[:8]}"
@@ -90,6 +94,7 @@ async def process_job_submitted(ev):
 
 
 async def process_job_cancelled(ev):
+    """Delete the Kubernetes Job and ConfigMap for a cancelled job event."""
     job_id = ev["job_id"]
     job_name = f"train-{job_id[:8]}"
     cm_name = f"{job_name}-config"
@@ -115,6 +120,7 @@ async def process_job_cancelled(ev):
 
 
 async def consume_forever():
+    """Continuously consume Kafka events with retry on failure."""
     while True:
         try:
             await consume_once()
@@ -123,6 +129,7 @@ async def consume_forever():
             await asyncio.sleep(3)
 
 async def consume_once():
+    """Consume Kafka events until the consumer stops."""
     consumer = AIOKafkaConsumer(
         KAFKA_TOPIC,
         bootstrap_servers=KAFKA_BOOTSTRAP.split(","),
@@ -144,6 +151,7 @@ async def consume_once():
 
 
 def main():
+    """Load Kubernetes config and start the Kafka consumer loop."""
     logger.info("Job Launcher starting... pid=%s", os.getpid())
 
     in_cluster = bool(os.getenv("KUBERNETES_SERVICE_HOST"))

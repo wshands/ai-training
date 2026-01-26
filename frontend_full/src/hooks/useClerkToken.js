@@ -7,7 +7,11 @@ export const useClerkToken = () => {
 
   const getFreshToken = useCallback(async () => {
     if (!isSignedIn) return null;
-    return await getToken();
+    try {
+      return await getToken({ skipCache: true });
+    } catch {
+      return await getToken();
+    }
   }, [getToken, isSignedIn]);
 
   useEffect(() => {

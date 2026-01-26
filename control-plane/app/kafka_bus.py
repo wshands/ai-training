@@ -1,4 +1,4 @@
-# control_plane/kafka_bus.py (or wherever this lives)
+"""Kafka producer utilities for control-plane job events."""
 from __future__ import annotations
 
 import json
@@ -14,6 +14,7 @@ producer: Optional[AIOKafkaProducer] = None
 
 
 async def init_kafka() -> None:
+    """Initialize the shared Kafka producer."""
     global producer
     if producer is not None:
         return
@@ -27,6 +28,7 @@ async def init_kafka() -> None:
 
 
 async def close_kafka() -> None:
+    """Stop and clear the shared Kafka producer."""
     global producer
     if producer is None:
         return

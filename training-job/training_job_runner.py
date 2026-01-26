@@ -1,4 +1,6 @@
 
+"""Training job runner that emits lifecycle events and metrics."""
+
 import logging
 import os
 # Why put logging setup outside main()?
@@ -9,6 +11,7 @@ import os
 # logging with your settings. This is useful in container apps because frameworks
 # (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
 def setup_logging() -> None:
+    """Configure process-wide logging with an env-driven log level."""
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
@@ -30,6 +33,7 @@ from typing import Any, Dict
 
 terminate = False
 def handle_sigterm(signum, frame):
+    """Handle SIGTERM by setting a termination flag."""
     global terminate
     terminate = True
 signal.signal(signal.SIGTERM, handle_sigterm)
@@ -46,6 +50,7 @@ current_user_id: str | None = None
 PRODUCER_NAME = os.environ.get("PRODUCER_NAME", "training-job")
 
 async def init_producer():
+    """Initialize the Kafka producer used by the training job."""
     global producer
     producer = AIOKafkaProducer(
         bootstrap_servers=KAFKA.split(","),
@@ -57,6 +62,7 @@ async def init_producer():
 
 
 async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
+    """Emit a job event to Kafka with the current identity and sequence."""
     global current_seq
     if producer is None:
         raise RuntimeError("Producer not initialized")
@@ -95,11 +101,13 @@ async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
 
 # ---------- TRAINING LOGIC ----------
 def load_config():
+    """Load the job configuration JSON from disk."""
     with open(JOB_CONFIG) as f:
         return json.load(f)
 
 
 def build_model():
+    """Construct a simple MLP for the synthetic training run."""
     import torch.nn as nn
     return nn.Sequential(
         nn.Linear(128,64),
@@ -109,6 +117,7 @@ def build_model():
 
 
 def build_data(batch_size, val_split=0.2, seed=42):
+    """Create synthetic training/validation data loaders."""
     import torch.utils.data as data
     gen = torch.Generator().manual_seed(seed)
     X = torch.randn(2000, 128, generator=gen)
@@ -125,6 +134,7 @@ def build_data(batch_size, val_split=0.2, seed=42):
 
 
 async def run_job():
+    """Run the training loop and emit job lifecycle events."""
     cfg = load_config()
     jid = cfg.get("job_id", f"job-{int(time.time())}")
     seq_start = int(cfg.get("seq_start", 2))
@@ -205,6 +215,7 @@ async def run_job():
 
 
 async def main():
+    """Entry point for the training job runner."""
     await init_producer()
     rc = await run_job()
     await producer.stop()

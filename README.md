@@ -118,3 +118,10 @@ To bring down the cluster and delete all data:
 ```bash
  minikube delete
 ```
+
+
+To test:
+```bash
+ pip install -r requirements-dev.txt
+ pytest
+```

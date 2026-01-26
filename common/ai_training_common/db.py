@@ -1,3 +1,5 @@
+"""Database access helpers for jobs and job events."""
+
 import asyncpg
 import json
 import time
@@ -8,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 pool: asyncpg.pool.Pool | None = None
 
 async def init_db():
+    """Initialize the connection pool and ensure core tables exist."""
     global pool
     if pool is None:
         pool = await asyncpg.create_pool(POSTGRES_DSN)
@@ -88,6 +91,7 @@ async def init_db():
 
 
 async def persist_initial_job(job_id: str, config: dict, tenant_id: str, user_id: str):
+    """Insert the initial job row for a submitted job."""
     global pool
     if pool is None:
         await init_db()
@@ -104,6 +108,7 @@ async def persist_initial_job(job_id: str, config: dict, tenant_id: str, user_id
 
 
 async def fetch_jobs(tenant_id: str, limit: int = 100, offset: int = 0) -> List[asyncpg.Record]:
+    """Fetch a page of job summaries for a tenant."""
     global pool
     if pool is None:
         await init_db()
@@ -135,6 +140,7 @@ async def fetch_jobs(tenant_id: str, limit: int = 100, offset: int = 0) -> List[
 
 
 async def fetch_job(tenant_id: str, job_id: str):
+    """Fetch a single job and its latest state for a tenant."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -165,15 +171,7 @@ async def fetch_job_events_since(
     last_id: int = 0,
     limit: int = 500,
 ) -> List[asyncpg.Record]:
-    """
-    Fetch job_events for a job with id > last_id.
-
-    event_processor.ensure_db() creates job_events with at least:
-      id BIGSERIAL,
-      job_id TEXT,
-      event_time TIMESTAMP,
-      payload JSONB
-    """
+    """Fetch job events with IDs greater than last_id."""
     global pool
     if pool is None:
         await init_db()
@@ -212,6 +210,7 @@ async def fetch_job_events_before(
     before_id: int,
     limit: int = 500,
 ) -> List[asyncpg.Record]:
+    """Fetch job events with IDs less than before_id (descending)."""
     global pool
     if pool is None:
         await init_db()
@@ -249,6 +248,7 @@ async def fetch_job_events_latest(
     job_id: str,
     limit: int = 200,
 ) -> List[asyncpg.Record]:
+    """Fetch the newest job events for a job (descending)."""
     global pool
     if pool is None:
         await init_db()
@@ -284,6 +284,7 @@ async def fetch_job_event_types_until(
     job_id: str,
     up_to_id: int,
 ) -> List[str]:
+    """Fetch event types up to a given event ID for state replay."""
     global pool
     if pool is None:
         await init_db()

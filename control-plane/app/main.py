@@ -1,4 +1,6 @@
 
+"""Control-plane API for job submission, status, and event streaming."""
+
 import logging
 import os
 # Why put logging setup outside main()?
@@ -9,6 +11,7 @@ import os
 # logging with your settings. This is useful in container apps because frameworks
 # (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
 def setup_logging() -> None:
+    """Configure process-wide logging with an env-driven log level."""
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
@@ -33,6 +36,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from kubernetes import client, config as k8s_config
 from pydantic import BaseModel, Field, ValidationError
 from typing import Any, Dict, List, Optional
+from contextlib import asynccontextmanager
 import jwt
 from jwt import PyJWKClientError
 
@@ -97,7 +101,22 @@ MAX_JOBS_LIMIT = 200
 DEFAULT_EVENTS_LIMIT = 500
 MAX_EVENTS_LIMIT = 2000
 
-app = FastAPI(title="AI Platform Control Plane")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize shared resources and clean them up on shutdown."""
+    await init_db()
+    await init_kafka()
+    global redis_client
+    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    try:
+        yield
+    finally:
+        if redis_client:
+            await redis_client.aclose()
+            redis_client = None
+
+
+app = FastAPI(title="AI Platform Control Plane", lifespan=lifespan)
 
 # Configure CORS
 origins = [
@@ -121,6 +140,7 @@ _jwks_client: jwt.PyJWKClient | None = None
 
 
 def get_jwks_client() -> jwt.PyJWKClient:
+    """Return a cached JWKS client for Clerk token verification."""
     global _jwks_client
     if _jwks_client is None:
         if not CLERK_JWKS_URL:
@@ -130,6 +150,7 @@ def get_jwks_client() -> jwt.PyJWKClient:
 
 
 def decode_clerk_token(token: str) -> AuthContext:
+    """Validate a Clerk JWT and return the derived auth context."""
     try:
         jwk_client = get_jwks_client()
         signing_key = jwk_client.get_signing_key_from_jwt(token)
@@ -170,12 +191,14 @@ def decode_clerk_token(token: str) -> AuthContext:
 def get_current_identity(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> AuthContext:
+    """FastAPI dependency to validate bearer tokens for HTTP requests."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     return decode_clerk_token(credentials.credentials)
 
 
 def get_ws_identity(websocket: WebSocket) -> AuthContext:
+    """Validate a token for WebSocket connections via query param or header."""
     token = websocket.query_params.get("token")
     if not token:
         auth_header = websocket.headers.get("authorization", "")
@@ -197,30 +220,18 @@ class TrainJobRequest(BaseModel):
 
 
 def load_k8s_clients():
+    """Load kubeconfig and return Kubernetes API clients."""
     k8s_config.load_kube_config(CUSTOMER_KUBECONFIG)
     return client.BatchV1Api(), client.CoreV1Api()
 
 # create one shared Redis connection pool per process
 redis_client: redis.Redis | None = None
 
-@app.on_event("startup")
-async def on_startup():
-    await init_db()
-    await init_kafka()
-
-    global redis_client
-    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    global redis_client
-    if redis_client:
-        await redis_client.aclose()
-        redis_client = None
 
 
 @app.get("/auth/me", response_model=AuthContext)
 async def me(identity: AuthContext = Depends(get_current_identity)):
+    """Return the caller's auth context for debugging."""
     return identity
 
 
@@ -229,6 +240,7 @@ async def submit_training_job(
     req: TrainJobRequest,
     identity: AuthContext = Depends(get_current_identity),
 ):
+    """Create a new job record and emit a submission event."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
     job_id = str(uuid.uuid4())
     job_name = f"train-{job_id[:8]}"
@@ -279,6 +291,7 @@ async def cancel_job(
     job_id: str,
     identity: AuthContext = Depends(get_current_identity),
 ):
+    """Emit a cancellation event for a job."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
     row = await fetch_job(tenant_id, job_id)
     if not row:
@@ -307,6 +320,7 @@ async def retry_job(
     job_id: str,
     identity: AuthContext = Depends(get_current_identity),
 ):
+    """Create a new job based on a previous job's config."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
     row = await fetch_job(tenant_id, job_id)
     if not row:
@@ -355,6 +369,7 @@ async def list_jobs(
     offset: int = 0,
     identity: AuthContext = Depends(get_current_identity),
 ):
+    """List job summaries for the caller's tenant."""
     tenant_id = identity.tenant_id
     safe_limit = max(1, min(limit, MAX_JOBS_LIMIT))
     safe_offset = max(0, offset)
@@ -386,6 +401,7 @@ async def get_job(
     job_id: str,
     identity: AuthContext = Depends(get_current_identity),
 ) -> JobSummary:
+    """Return a single job summary for the tenant."""
     tenant_id = identity.tenant_id
     row = await fetch_job(tenant_id, job_id)
     if not row:
@@ -407,6 +423,7 @@ async def get_job(
 
 @app.websocket("/ws/jobs/{job_id}")
 async def ws_job_stream(websocket: WebSocket, job_id: str):
+    """Stream job events for a single job over WebSocket."""
     await websocket.accept()
     try:
         identity = get_ws_identity(websocket)
@@ -474,6 +491,7 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
 
 @app.websocket("/ws/jobs")
 async def ws_jobs_stream(websocket: WebSocket):
+    """Stream job events for a tenant over WebSocket."""
     await websocket.accept()
     try:
         identity = get_ws_identity(websocket)
@@ -535,6 +553,7 @@ def _render_job_events(
     include_state: bool,
     prior_state: EventJobState | None,
 ) -> List[Dict[str, Any]]:
+    """Convert event rows to API output, optionally computing state."""
     out = []
     state = prior_state
     for r in rows:
@@ -581,6 +600,7 @@ async def get_job_events(
     include_state: bool = True,
     identity: AuthContext = Depends(get_current_identity),
 ):
+    """Return paginated job events, with optional state replay."""
     tenant_id = identity.tenant_id
     safe_limit = max(1, min(limit, MAX_EVENTS_LIMIT))
 
@@ -628,6 +648,7 @@ async def get_latest_job_events(
     include_state: bool = False,
     identity: AuthContext = Depends(get_current_identity),
 ):
+    """Return the latest events for a job without history replay by default."""
     tenant_id = identity.tenant_id
     safe_limit = max(1, min(limit, MAX_EVENTS_LIMIT))
     rows = await fetch_job_events_latest(

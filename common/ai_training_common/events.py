@@ -1,3 +1,5 @@
+"""Canonical event schemas for training job lifecycle messages."""
+
 # common/ai_training_common/events.py
 from __future__ import annotations
 

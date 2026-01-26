@@ -1,3 +1,5 @@
+"""Environment-driven configuration defaults."""
+
 import os
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")

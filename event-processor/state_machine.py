@@ -1,5 +1,8 @@
+"""State transition rules for the event processor."""
+
 from enum import Enum
 class JobState(str, Enum):
+     """Supported job lifecycle states."""
      SUBMITTED = "SUBMITTED"
      PENDING = "PENDING"
      RUNNING = "RUNNING"
@@ -40,6 +43,7 @@ TRANSITIONS = {
 }
 
 def apply_event(current_state: JobState | None, event_type: str) -> JobState:
+    """Apply an event type to a job state, returning the next state."""
     if current_state is None:
         current_state = JobState.SUBMITTED
     allowed = TRANSITIONS.get(current_state, {})

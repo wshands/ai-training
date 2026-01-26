@@ -1,3 +1,5 @@
+"""Kafka consumer that persists job events and fans them out over Redis."""
+
 # -----------------------
 # Logging
 # -----------------------
@@ -12,6 +14,7 @@ import os
 # logging with your settings. This is useful in container apps because frameworks
 # (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
 def setup_logging() -> None:
+    """Configure process-wide logging with an env-driven log level."""
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
@@ -71,12 +74,14 @@ MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
 # -----------------------
 
 def _ts_to_pg_seconds(ts: Optional[int | float]) -> Optional[float]:
+    """Normalize timestamps (ms or s) to seconds for PostgreSQL."""
     if ts is None:
         return None
     ts_f = float(ts)
     return ts_f / 1000.0 if ts_f >= 1_000_000_000_000 else ts_f
 
 async def wait_for_postgres(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
+    """Wait until the database responds to simple queries."""
     deadline = asyncio.get_event_loop().time() + timeout_s
     while True:
         try:
@@ -88,6 +93,7 @@ async def wait_for_postgres(conn: asyncpg.Connection, timeout_s: int = 60) -> No
             await asyncio.sleep(1)
 
 async def wait_for_schema(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
+    """Wait for required tables to be present before consuming events."""
     deadline = asyncio.get_event_loop().time() + timeout_s
     needed = {"jobs", "job_events", "job_state"}
 
@@ -386,6 +392,7 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
 # Retry logic for starting Kafka consumer
 # Make the consumer resilient anyway (retry start, and handle transient errors
 async def start_consumer_with_retry(consumer, tries: int = 60) -> None:
+    """Start a Kafka consumer with retry/backoff for transient errors."""
     delay = 0.5
     for i in range(tries):
         try:
@@ -406,11 +413,13 @@ async def start_consumer_with_retry(consumer, tries: int = 60) -> None:
 
 
 async def publish_ws_event(r: redis.Redis, out: JobEventOut) -> None:
+    """Publish a processed event to the tenant Redis channel."""
     channel = f"job_events:{out.tenant_id}"
     await r.publish(channel, out.model_dump_json())
 
 
 async def prune_old_events_loop(dsn: str) -> None:
+    """Periodically prune old job events based on retention settings."""
     if EVENT_RETENTION_DAYS <= 0:
         logger.info("Event retention disabled; skipping prune loop")
         return
@@ -435,6 +444,7 @@ async def prune_old_events_loop(dsn: str) -> None:
 
 
 async def main() -> None:
+    """Run the event processor loop (consume, persist, fan out)."""
     await init_db()
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
