@@ -11,10 +11,10 @@
     "recharts": "^2.12.0"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8.4.35",
     "autoprefixer": "^10.4.16",
-    "react-scripts": "^5.0.1"
+    "postcss": "^8.4.35",
+    "react-scripts": "^5.0.1",
+    "tailwindcss": "^3.4.1"
   },
   "scripts": {
     "start": "react-scripts start",

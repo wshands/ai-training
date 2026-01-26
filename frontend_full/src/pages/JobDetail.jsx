@@ -84,7 +84,7 @@ const JobDetail = () => {
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyOldestId, setHistoryOldestId] = useState(null);
 
-  const historyPageSize = 100;
+  const historyPageSize = 500;
 
 
   //  This ensures:

@@ -84,7 +84,10 @@ class JobEventIn(BaseModel):
 
 
 class JobEventOut(BaseModel):
-    """Redis/UI/REST shape."""
+    """Redis/UI/REST shape.
+
+    Note: REST responses may omit the `state` field.
+    """
     model_config = ConfigDict(extra="forbid")
 
     id: int
@@ -98,4 +101,4 @@ class JobEventOut(BaseModel):
     producer: str
     schema_version: int
     data: Dict[str, Any] = Field(default_factory=dict)
-    state: str
+    state: str = ""

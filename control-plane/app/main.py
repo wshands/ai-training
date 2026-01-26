@@ -59,11 +59,9 @@ from common.ai_training_common.db import (
     fetch_job_events_since,
     fetch_job_events_before,
     fetch_job_events_latest,
-    fetch_job_event_types_until,
     fetch_job,
 )
 from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
-from common.ai_training_common.state_machine import JobState as EventJobState, apply_event
 
 
 class JobState(str, Enum):
@@ -547,26 +545,16 @@ async def ws_jobs_stream(websocket: WebSocket):
             pass
 
 
-def _render_job_events(
-    rows: List[Dict[str, Any]],
-    *,
-    include_state: bool,
-    prior_state: EventJobState | None,
-) -> List[Dict[str, Any]]:
-    """Convert event rows to API output, optionally computing state."""
+def _render_job_events(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert event rows to API output without replaying state."""
     out = []
-    state = prior_state
     for r in rows:
         data = r["payload"]
         if isinstance(data, str):
             data = json.loads(data)
 
         event_type = r["event_type"]
-        if include_state:
-            state = apply_event(state, event_type)
-            state_value = state.value
-        else:
-            state_value = ""
+        state_value = ""
 
         event_time = r["event_time"]
         event_time_iso = event_time.isoformat() if event_time else ""
@@ -585,8 +573,7 @@ def _render_job_events(
                 producer=r["producer"] or "unknown",
                 schema_version=int(r["schema_version"] or 1),
                 data=data or {},
-                state=state_value,
-            ).model_dump()
+            ).model_dump(exclude={"state"})
         )
     return out
 
@@ -597,31 +584,11 @@ async def get_job_events(
     since_id: int = 0,
     before_id: int | None = None,
     limit: int = DEFAULT_EVENTS_LIMIT,
-    include_state: bool = True,
     identity: AuthContext = Depends(get_current_identity),
 ):
-    """Return paginated job events, with optional state replay."""
+    """Return paginated job events without replaying state."""
     tenant_id = identity.tenant_id
     safe_limit = max(1, min(limit, MAX_EVENTS_LIMIT))
-
-    prior_state: EventJobState | None = None
-    if include_state:
-        if before_id is not None and before_id > 0:
-            prior_types = await fetch_job_event_types_until(
-                tenant_id=tenant_id,
-                job_id=job_id,
-                up_to_id=before_id - 1,
-            )
-            for event_type in prior_types:
-                prior_state = apply_event(prior_state, event_type)
-        elif since_id > 0:
-            prior_types = await fetch_job_event_types_until(
-                tenant_id=tenant_id,
-                job_id=job_id,
-                up_to_id=since_id,
-            )
-            for event_type in prior_types:
-                prior_state = apply_event(prior_state, event_type)
 
     if before_id is not None:
         rows = await fetch_job_events_before(
@@ -638,17 +605,16 @@ async def get_job_events(
             last_id=since_id,
             limit=safe_limit,
         )
-    return _render_job_events(rows, include_state=include_state, prior_state=prior_state)
+    return _render_job_events(rows)
 
 
 @app.get("/jobs/{job_id}/events/latest")
 async def get_latest_job_events(
     job_id: str,
     limit: int = DEFAULT_EVENTS_LIMIT,
-    include_state: bool = False,
     identity: AuthContext = Depends(get_current_identity),
 ):
-    """Return the latest events for a job without history replay by default."""
+    """Return the latest events for a job without history replay."""
     tenant_id = identity.tenant_id
     safe_limit = max(1, min(limit, MAX_EVENTS_LIMIT))
     rows = await fetch_job_events_latest(
@@ -657,17 +623,4 @@ async def get_latest_job_events(
         limit=safe_limit,
     )
     rows = sorted(rows, key=lambda r: int(r["id"]))
-
-    prior_state: EventJobState | None = None
-    if include_state and rows:
-        oldest_id = int(rows[0]["id"])
-        if oldest_id > 1:
-            prior_types = await fetch_job_event_types_until(
-                tenant_id=tenant_id,
-                job_id=job_id,
-                up_to_id=oldest_id - 1,
-            )
-            for event_type in prior_types:
-                prior_state = apply_event(prior_state, event_type)
-
-    return _render_job_events(rows, include_state=include_state, prior_state=prior_state)
+    return _render_job_events(rows)

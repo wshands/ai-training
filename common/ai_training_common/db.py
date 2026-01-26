@@ -278,28 +278,3 @@ async def fetch_job_events_latest(
         )
     return rows
 
-
-async def fetch_job_event_types_until(
-    tenant_id: str,
-    job_id: str,
-    up_to_id: int,
-) -> List[str]:
-    """Fetch event types up to a given event ID for state replay."""
-    global pool
-    if pool is None:
-        await init_db()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT event_type
-            FROM job_events
-            WHERE tenant_id = $1
-            AND job_id = $2
-            AND id <= $3
-            ORDER BY id ASC
-            """,
-            tenant_id,
-            job_id,
-            up_to_id,
-        )
-    return [r["event_type"] for r in rows]

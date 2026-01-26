@@ -99,4 +99,4 @@ def test_latest_events_no_state(client, monkeypatch) -> None:
     data = resp.json()
     assert len(data) == 2
     assert data[0]["event_type"] == "JOB_LOG"
-    assert data[0]["state"] == ""
+    assert "state" not in data[0]
