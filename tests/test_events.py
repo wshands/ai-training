@@ -21,3 +21,16 @@ def test_job_event_make_defaults() -> None:
     assert ev.producer == "test-suite"
     assert ev.payload == {}
     assert isinstance(ev.event_id, str)
+
+
+def test_job_event_pending_type() -> None:
+    ev = JobEventIn.make(
+        event_type=EventType.JOB_PENDING,
+        job_id="job-456",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        seq=2,
+        producer="test-suite",
+    )
+
+    assert ev.event_type == EventType.JOB_PENDING

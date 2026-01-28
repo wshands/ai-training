@@ -94,9 +94,37 @@ def test_latest_events_no_state(client, monkeypatch) -> None:
         ]
 
     monkeypatch.setattr(main_mod, "fetch_job_events_latest", fake_fetch_latest)
-    resp = client.get("/jobs/job-123/events/latest?limit=2&include_state=false")
+    resp = client.get("/jobs/job-123/events/latest?limit=2")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 2
     assert data[0]["event_type"] == "JOB_LOG"
     assert "state" not in data[0]
+
+
+def test_internal_jobs_requires_data_plane_token(client, monkeypatch) -> None:
+    async def fake_fetch_jobs_by_state(tenant_id: str, state: str, limit: int):
+        return []
+
+    monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
+    resp = client.get("/internal/jobs?status_filter=SUBMITTED&limit=1")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "DATA_PLANE_API_TOKEN not configured"
+
+
+def test_internal_jobs_with_data_plane_token(client, monkeypatch) -> None:
+    async def fake_fetch_jobs_by_state(tenant_id: str, state: str, limit: int):
+        assert tenant_id == "tenant-1"
+        assert state == "SUBMITTED"
+        assert limit == 2
+        return []
+
+    monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
+    monkeypatch.setattr(main_mod, "DATA_PLANE_API_TOKEN", "token-123")
+    monkeypatch.setattr(main_mod, "DATA_PLANE_TENANT_ID", "tenant-1")
+    resp = client.get(
+        "/internal/jobs?status_filter=SUBMITTED&limit=2",
+        headers={"Authorization": "Bearer token-123"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []

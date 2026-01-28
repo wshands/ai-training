@@ -5,7 +5,9 @@ from common.ai_training_common.state_machine import JobState, apply_event
 
 def test_apply_event_basic_transitions() -> None:
     assert apply_event(None, "JOB_SUBMITTED") == JobState.SUBMITTED
-    assert apply_event(JobState.SUBMITTED, "JOB_STARTED") == JobState.RUNNING
+    assert apply_event(JobState.SUBMITTED, "JOB_PENDING") == JobState.PENDING
+    assert apply_event(JobState.PENDING, "JOB_SUBMITTED") == JobState.PENDING
+    assert apply_event(JobState.PENDING, "JOB_STARTED") == JobState.RUNNING
     assert apply_event(JobState.RUNNING, "JOB_FAILED") == JobState.FAILED
 
 
