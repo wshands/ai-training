@@ -1,0 +1,49 @@
+replicaCount: 2
+
+image:
+  repository: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/control-plane
+  tag: <IMAGE_TAG>
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: control-plane.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - control-plane.example.com
+      secretName: control-plane-tls
+
+env:
+  KAFKA_BOOTSTRAP: "b-1.msk.example.amazonaws.com:9096,b-2.msk.example.amazonaws.com:9096"
+  POSTGRES_DSN: "postgresql://user:pass@postgres.example.com:5432/controlplane"
+  REDIS_URL: "redis://redis.example.com:6379/0"
+  CLERK_JWKS_URL: "https://<clerk-domain>/.well-known/jwks.json"
+  CLERK_ISSUER: "https://<clerk-domain>"
+  CLERK_AUDIENCE: ""
+  CLERK_JWT_ALGORITHM: "RS256"
+  KAFKA_SECURITY_PROTOCOL: "SASL_SSL"
+  KAFKA_SASL_MECHANISM: "SCRAM-SHA-512"
+  KAFKA_SASL_USERNAME: "<msk-username>"
+  KAFKA_SASL_PASSWORD: "<msk-password>"
+  KAFKA_SSL_CA_FILE: "/etc/ssl/kafka/ca.pem"
+  KAFKA_SSL_CERT_FILE: ""
+  KAFKA_SSL_KEY_FILE: ""
+  DATA_PLANE_API_TOKEN: "<data-plane-token>"
+  DATA_PLANE_TENANT_ID: "<tenant-id>"
+
+secretMounts:
+  - name: kafka-ca
+    secretName: kafka-ca
+    mountPath: /etc/ssl/kafka

@@ -5,7 +5,7 @@ const OrgSelect = () => (
   <div className="max-w-md mx-auto">
     <h1 className="text-xl font-semibold mb-4">Choose organization</h1>
     <OrganizationList
-      hidePersonal={false}
+      hidePersonal={true}
       afterSelectOrganizationUrl="/"
       afterCreateOrganizationUrl="/"
     />

@@ -51,6 +51,7 @@ from aiokafka.errors import (
 from common.ai_training_common.db import init_db
 from common.ai_training_common.state_machine import JobState, apply_event
 from common.ai_training_common.events import JobEventIn, JobEventOut
+from common.ai_training_common.kafka import build_kafka_config
 
 
 # -----------------------
@@ -453,14 +454,15 @@ async def main() -> None:
     await wait_for_schema(conn, timeout_s=60)
     asyncio.create_task(prune_old_events_loop(POSTGRES_DSN))
 
+    kafka_config = build_kafka_config()
     consumer = AIOKafkaConsumer(
         IN_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP,
         group_id="event-processor",
         value_deserializer=lambda v: json.loads(v.decode("utf-8")),
         enable_auto_commit=False,
         max_poll_interval_ms=15 * 60 * 1000,
         max_poll_records=10,
+        **kafka_config,
     )
 
     await start_consumer_with_retry(consumer)

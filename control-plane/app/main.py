@@ -18,6 +18,14 @@ def setup_logging() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=True
     )
+    if os.getenv("SUPPRESS_INTERNAL_ACCESS_LOGS", "true").lower() in ("1", "true", "yes"):
+        logging.getLogger("uvicorn.access").addFilter(_InternalAccessLogFilter())
+
+
+class _InternalAccessLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return "/internal/jobs" not in message
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -29,7 +37,7 @@ import redis.asyncio as redis
 
 from datetime import datetime
 from enum import Enum
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -50,12 +58,15 @@ from common.ai_training_common.config import (
     CLERK_ISSUER,
     CLERK_AUDIENCE,
     CLERK_JWT_ALGORITHM,
+    DATA_PLANE_API_TOKEN,
+    DATA_PLANE_TENANT_ID,
 )
 from .kafka_bus import init_kafka, send_event
 from common.ai_training_common.db import (
     init_db,
     persist_initial_job,
     fetch_jobs,
+    fetch_jobs_by_state,
     fetch_job_events_since,
     fetch_job_events_before,
     fetch_job_events_latest,
@@ -93,6 +104,11 @@ class AuthContext(BaseModel):
     tenant_id: str
     email: Optional[str] = None
     role: Optional[str] = None
+
+
+class DataPlaneContext(BaseModel):
+    tenant_id: str
+
 
 DEFAULT_JOBS_LIMIT = 50
 MAX_JOBS_LIMIT = 200
@@ -205,6 +221,29 @@ def get_ws_identity(websocket: WebSocket) -> AuthContext:
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
     return decode_clerk_token(token)
+
+
+def get_data_plane_identity(request: Request) -> DataPlaneContext:
+    """Authenticate data-plane requests using a shared token."""
+    if not DATA_PLANE_API_TOKEN:
+        raise HTTPException(status_code=500, detail="DATA_PLANE_API_TOKEN not configured")
+
+    token = request.headers.get("x-data-plane-token")
+    if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1]
+
+    if token != DATA_PLANE_API_TOKEN:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
+
+    tenant_id = request.headers.get("x-tenant-id") or DATA_PLANE_TENANT_ID
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing tenant id")
+    if DATA_PLANE_TENANT_ID and tenant_id != DATA_PLANE_TENANT_ID:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
+
+    return DataPlaneContext(tenant_id=tenant_id)
 
 
 class TrainJobRequest(BaseModel):
@@ -417,6 +456,52 @@ async def get_job(
         model_id=cfg_obj.get("model_id"),
         dataset_id=cfg_obj.get("dataset_id"),
     )
+
+
+@app.get("/internal/jobs", response_model=List[JobSummary])
+async def list_pending_jobs(
+    status_filter: str = "SUBMITTED",
+    limit: int = DEFAULT_JOBS_LIMIT,
+    identity: DataPlaneContext = Depends(get_data_plane_identity),
+):
+    """List jobs for the data plane by status."""
+    safe_limit = max(1, min(limit, MAX_JOBS_LIMIT))
+    rows = await fetch_jobs_by_state(identity.tenant_id, status_filter, safe_limit)
+    summaries: List[JobSummary] = []
+    for r in rows:
+        last_event = r.get("last_event")
+        if isinstance(last_event, str):
+            last_event = json.loads(last_event)
+        last_error = (last_event or {}).get("error")
+        cfg = r["config"]
+        cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        summaries.append(
+            JobSummary(
+                job_id=r["job_id"],
+                status=(r["status"] or "SUBMITTED"),
+                created_at=r["created_at"],
+                submitted_at=r.get("submitted_at"),
+                updated_at=r.get("updated_at"),
+                config=cfg_obj,
+                last_error=last_error,
+            )
+        )
+    return summaries
+
+
+@app.post("/internal/events")
+async def ingest_data_plane_event(
+    event: JobEventIn,
+    identity: DataPlaneContext = Depends(get_data_plane_identity),
+):
+    """Ingest a data-plane event and publish it to Kafka."""
+    if event.tenant_id != identity.tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
+    try:
+        await send_event(event)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
+    return {"status": "accepted", "event_id": event.event_id}
 
 
 @app.websocket("/ws/jobs/{job_id}")

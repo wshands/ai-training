@@ -1,0 +1,6 @@
+apiVersion: v2
+name: control-plane
+description: Control plane API for AI training platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

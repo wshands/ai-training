@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "control-plane.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "control-plane.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "control-plane.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "control-plane.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- with .Values.podLabels }}
+{{ toYaml . | indent 6 }}
+      {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "control-plane.serviceAccountName" . }}
+      containers:
+        - name: control-plane
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: {{ .Values.env.KAFKA_BOOTSTRAP | quote }}
+            - name: POSTGRES_DSN
+              value: {{ .Values.env.POSTGRES_DSN | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.env.REDIS_URL | quote }}
+            - name: CLERK_JWKS_URL
+              value: {{ .Values.env.CLERK_JWKS_URL | quote }}
+            - name: CLERK_ISSUER
+              value: {{ .Values.env.CLERK_ISSUER | quote }}
+            - name: CLERK_AUDIENCE
+              value: {{ .Values.env.CLERK_AUDIENCE | quote }}
+            - name: CLERK_JWT_ALGORITHM
+              value: {{ .Values.env.CLERK_JWT_ALGORITHM | quote }}
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: {{ .Values.env.KAFKA_SECURITY_PROTOCOL | quote }}
+            - name: KAFKA_SASL_MECHANISM
+              value: {{ .Values.env.KAFKA_SASL_MECHANISM | quote }}
+            - name: KAFKA_SASL_USERNAME
+              value: {{ .Values.env.KAFKA_SASL_USERNAME | quote }}
+            - name: KAFKA_SASL_PASSWORD
+              value: {{ .Values.env.KAFKA_SASL_PASSWORD | quote }}
+            - name: KAFKA_SSL_CA_FILE
+              value: {{ .Values.env.KAFKA_SSL_CA_FILE | quote }}
+            - name: KAFKA_SSL_CERT_FILE
+              value: {{ .Values.env.KAFKA_SSL_CERT_FILE | quote }}
+            - name: KAFKA_SSL_KEY_FILE
+              value: {{ .Values.env.KAFKA_SSL_KEY_FILE | quote }}
+            - name: DATA_PLANE_API_TOKEN
+              value: {{ .Values.env.DATA_PLANE_API_TOKEN | quote }}
+            - name: DATA_PLANE_TENANT_ID
+              value: {{ .Values.env.DATA_PLANE_TENANT_ID | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+          {{- end }}
+          {{- if .Values.secretMounts }}
+          volumeMounts:
+            {{- range .Values.secretMounts }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if .Values.secretMounts }}
+      volumes:
+        {{- range .Values.secretMounts }}
+        - name: {{ .name }}
+          secret:
+            secretName: {{ .secretName }}
+        {{- end }}
+      {{- end }}

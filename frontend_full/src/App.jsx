@@ -53,7 +53,7 @@ const AppRoutes = () => (
           <Route
             path="/select-org"
             element={
-              <AuthGate>
+              <AuthGate requireOrg={false}>
                 <OrgSelect />
               </AuthGate>
             }

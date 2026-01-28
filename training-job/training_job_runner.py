@@ -24,11 +24,19 @@ logger = logging.getLogger(__name__)
 
 
 from common.ai_training_common.events import JobEventIn, EventType
-from common.ai_training_common.config import DEFAULT_TENANT_ID, DEFAULT_USER_ID
+from common.ai_training_common.config import (
+    DEFAULT_TENANT_ID,
+    DEFAULT_USER_ID,
+    CONTROL_PLANE_URL,
+    DATA_PLANE_API_TOKEN,
+    DATA_PLANE_TENANT_ID,
+)
 import os, json, time, sys, signal, asyncio
+import httpx
 import torch
 from aiokafka import AIOKafkaProducer
 from typing import Any, Dict
+from common.ai_training_common.kafka import build_kafka_config
 
 
 terminate = False
@@ -44,28 +52,46 @@ TOPIC = os.environ.get("KAFKA_TOPIC", "job-events")
 
 # ---------- PRODUCER INIT ----------
 producer: AIOKafkaProducer | None = None
+http_client: httpx.AsyncClient | None = None
 current_seq: int = 0
 current_tenant_id: str | None = None
 current_user_id: str | None = None
 PRODUCER_NAME = os.environ.get("PRODUCER_NAME", "training-job")
 
-async def init_producer():
-    """Initialize the Kafka producer used by the training job."""
-    global producer
-    producer = AIOKafkaProducer(
-        bootstrap_servers=KAFKA.split(","),
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        request_timeout_ms=30000,
-        retry_backoff_ms=500,
-    )
+def _use_http_sink() -> bool:
+    return bool(CONTROL_PLANE_URL)
+
+
+async def init_event_sink():
+    """Initialize the Kafka producer or HTTP client for event delivery."""
+    global producer, http_client
+    if _use_http_sink():
+        http_client = httpx.AsyncClient(base_url=CONTROL_PLANE_URL.rstrip("/"))
+        return
+    kafka_config = build_kafka_config()
+    kafka_config["value_serializer"] = lambda v: json.dumps(v).encode("utf-8")
+    kafka_config["request_timeout_ms"] = 30000
+    kafka_config["retry_backoff_ms"] = 500
+    producer = AIOKafkaProducer(**kafka_config)
     await producer.start()
+
+
+def _data_plane_headers() -> Dict[str, str]:
+    headers: Dict[str, str] = {}
+    if DATA_PLANE_API_TOKEN:
+        headers["Authorization"] = f"Bearer {DATA_PLANE_API_TOKEN}"
+    if DATA_PLANE_TENANT_ID:
+        headers["X-Tenant-Id"] = DATA_PLANE_TENANT_ID
+    return headers
 
 
 async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
     """Emit a job event to Kafka with the current identity and sequence."""
     global current_seq
-    if producer is None:
+    if not _use_http_sink() and producer is None:
         raise RuntimeError("Producer not initialized")
+    if _use_http_sink() and http_client is None:
+        raise RuntimeError("HTTP client not initialized")
     if not current_tenant_id or not current_user_id:
         raise RuntimeError("Missing tenant/user identity for job events")
 
@@ -86,14 +112,23 @@ async def emit(event_type: EventType, job_id: str, **kwargs: Any) -> None:
     logger.info(f"sending event with tenant_id={current_tenant_id} user_id={current_user_id} ")
 
     try:
-        meta = await producer.send_and_wait(
-            TOPIC,
-            value=ev.model_dump(),  # validated canonical envelope
-            key=job_id.encode("utf-8"),
-        )
-        logger.info(f"sent job_id={job_id} event_type={event_type} "
-            f"partition={meta.partition} offset={meta.offset}"
-        )
+        if _use_http_sink():
+            resp = await http_client.post(
+                "/internal/events",
+                json=ev.model_dump(),
+                headers=_data_plane_headers(),
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+        else:
+            meta = await producer.send_and_wait(
+                TOPIC,
+                value=ev.model_dump(),  # validated canonical envelope
+                key=job_id.encode("utf-8"),
+            )
+            logger.info(f"sent job_id={job_id} event_type={event_type} "
+                f"partition={meta.partition} offset={meta.offset}"
+            )
     except Exception as e:
         logger.error(f"failed to send job event job_id={job_id} event_type={event_type}: {e}")
         raise
@@ -216,9 +251,12 @@ async def run_job():
 
 async def main():
     """Entry point for the training job runner."""
-    await init_producer()
+    await init_event_sink()
     rc = await run_job()
-    await producer.stop()
+    if producer:
+        await producer.stop()
+    if http_client:
+        await http_client.aclose()
     return rc
 
 

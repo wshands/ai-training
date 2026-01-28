@@ -1,4 +1,5 @@
 aiokafka
+httpx
 numpy
 pydantic
 torch

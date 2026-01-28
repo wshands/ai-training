@@ -25,3 +25,15 @@ spec:
               value: "{{ .Values.jobLauncher.jobEventsTopic }}"
             - name: TRAINING_NAMESPACE
               value: "{{ .Values.jobLauncher.trainingNamespace }}"
+            {{- if .Values.jobLauncher.controlPlaneUrl }}
+            - name: CONTROL_PLANE_URL
+              value: "{{ .Values.jobLauncher.controlPlaneUrl }}"
+            {{- end }}
+            {{- if .Values.jobLauncher.dataPlaneApiToken }}
+            - name: DATA_PLANE_API_TOKEN
+              value: "{{ .Values.jobLauncher.dataPlaneApiToken }}"
+            {{- end }}
+            {{- if .Values.jobLauncher.dataPlaneTenantId }}
+            - name: DATA_PLANE_TENANT_ID
+              value: "{{ .Values.jobLauncher.dataPlaneTenantId }}"
+            {{- end }}

@@ -1,0 +1,31 @@
+replicaCount: 1
+
+image:
+  repository: ai-platform-d-control-plane
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+
+env:
+  KAFKA_BOOTSTRAP: "kafka:9092"
+  POSTGRES_DSN: "postgresql://postgres:postgres@postgres:5432/controlplane"
+  REDIS_URL: "redis://redis:6379/0"
+  CLERK_JWKS_URL: "https://bursting-asp-1.clerk.accounts.dev/.well-known/jwks.json"
+  CLERK_ISSUER: "https://bursting-asp-1.clerk.accounts.dev"
+  CLERK_AUDIENCE: ""
+  CLERK_JWT_ALGORITHM: "RS256"
+  KAFKA_SECURITY_PROTOCOL: ""
+  KAFKA_SASL_MECHANISM: ""
+  KAFKA_SASL_USERNAME: ""
+  KAFKA_SASL_PASSWORD: ""
+  KAFKA_SSL_CA_FILE: ""
+  KAFKA_SSL_CERT_FILE: ""
+  KAFKA_SSL_KEY_FILE: ""
+  DATA_PLANE_API_TOKEN: "local-dev-token"
+  DATA_PLANE_TENANT_ID: "local-dev-tenant"

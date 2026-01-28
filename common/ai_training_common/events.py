@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class EventType(str, Enum):
     JOB_SUBMITTED = "JOB_SUBMITTED"
+    JOB_PENDING = "JOB_PENDING"
     JOB_STARTED = "JOB_STARTED"
     JOB_LOG = "JOB_LOG"
     EPOCH_METRIC = "EPOCH_METRIC"

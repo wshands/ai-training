@@ -1,6 +1,0 @@
-apiVersion: v2
-name: ai-platform
-description: Umbrella chart for AI platform control-plane
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

@@ -6,7 +6,8 @@ from typing import Any, Mapping, Optional
 
 from aiokafka import AIOKafkaProducer
 
-from common.ai_training_common.config import KAFKA_BOOTSTRAP, KAFKA_TOPIC
+from common.ai_training_common.config import KAFKA_TOPIC
+from common.ai_training_common.kafka import build_kafka_config
 from common.ai_training_common.events import JobEventIn
 
 
@@ -19,11 +20,10 @@ async def init_kafka() -> None:
     if producer is not None:
         return
 
-    producer = AIOKafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP.split(","),
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        linger_ms=20,
-    )
+    kafka_config = build_kafka_config()
+    kafka_config["value_serializer"] = lambda v: json.dumps(v).encode("utf-8")
+    kafka_config["linger_ms"] = 20
+    producer = AIOKafkaProducer(**kafka_config)
     await producer.start()
 
 

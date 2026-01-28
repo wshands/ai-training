@@ -33,7 +33,7 @@ docker-compose down -v
 To build the (data plane) job launcher and training job in minikube:
 ```bash
 eval $(minikube docker-env)
-docker build -t ai-platform-job-launcher:latest ./job-launcher
+docker build -f job-launcher/Dockerfile -t ai-platform-job-launcher:latest .
 docker build -f training-job/Dockerfile -t ai-platform-training-job:latest .
 ```
 

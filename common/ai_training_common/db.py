@@ -139,6 +139,42 @@ async def fetch_jobs(tenant_id: str, limit: int = 100, offset: int = 0) -> List[
     return rows
 
 
+async def fetch_jobs_by_state(
+    tenant_id: str,
+    state: str,
+    limit: int = 100,
+) -> List[asyncpg.Record]:
+    """Fetch jobs for a tenant filtered by last_state."""
+    global pool
+    if pool is None:
+        await init_db()
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+              j.job_id,
+              j.created_at,
+              j.submitted_at,
+              COALESCE(js.updated_at, j.updated_at) AS updated_at,
+              j.config,
+              js.last_event,
+              COALESCE(js.last_state, 'SUBMITTED') AS status
+            FROM jobs AS j
+            LEFT JOIN job_state AS js
+              ON js.job_id = j.job_id
+            WHERE j.tenant_id = $1
+              AND COALESCE(js.last_state, 'SUBMITTED') = $2
+            ORDER BY j.created_at ASC
+            LIMIT $3
+            """,
+            tenant_id,
+            state,
+            limit,
+        )
+    return rows
+
+
 async def fetch_job(tenant_id: str, job_id: str):
     """Fetch a single job and its latest state for a tenant."""
     async with pool.acquire() as conn:
@@ -277,4 +313,3 @@ async def fetch_job_events_latest(
             limit,
         )
     return rows
-

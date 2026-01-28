@@ -1,2 +1,4 @@
 aiokafka
+httpx
 kubernetes
+pydantic

@@ -10,6 +10,9 @@ jobLauncher:
   kafkaBootstrap: "host.minikube.internal:19092"
   jobEventsTopic: "job-events"
   trainingNamespace: "training-jobs"
+  controlPlaneUrl: "http://host.docker.internal:8000"
+  dataPlaneApiToken: "local-dev-token"
+  dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"
 
 
 kafka:

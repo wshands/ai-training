@@ -18,12 +18,14 @@ class JobState(str, Enum):
 TRANSITIONS = {
     JobState.SUBMITTED: {
         "JOB_SUBMITTED": JobState.SUBMITTED,
+        "JOB_PENDING": JobState.PENDING,
         "JOB_STARTED": JobState.RUNNING,
         "JOB_FAILED": JobState.FAILED,
         "JOB_CANCELLED": JobState.CANCELLED,
     },
     JobState.PENDING: {
-        "JOB_SUBMITTED": JobState.SUBMITTED,
+        "JOB_SUBMITTED": JobState.PENDING,
+        "JOB_PENDING": JobState.PENDING,
         "JOB_STARTED": JobState.RUNNING,
         "JOB_FAILED": JobState.FAILED,
         "JOB_CANCELLED": JobState.CANCELLED,
