@@ -60,6 +60,9 @@ from common.ai_training_common.config import (
     CLERK_JWT_ALGORITHM,
     DATA_PLANE_API_TOKEN,
     DATA_PLANE_TENANT_ID,
+    DATA_PLANE_API_TOKENS,
+    DATA_PLANE_LOG_POLLS,
+    parse_data_plane_tokens,
 )
 from .kafka_bus import init_kafka, send_event
 from common.ai_training_common.db import (
@@ -108,6 +111,10 @@ class AuthContext(BaseModel):
 
 class DataPlaneContext(BaseModel):
     tenant_id: str
+    agent_id: str
+
+
+DATA_PLANE_TOKENS = parse_data_plane_tokens(DATA_PLANE_API_TOKENS)
 
 
 DEFAULT_JOBS_LIMIT = 50
@@ -225,7 +232,7 @@ def get_ws_identity(websocket: WebSocket) -> AuthContext:
 
 def get_data_plane_identity(request: Request) -> DataPlaneContext:
     """Authenticate data-plane requests using a shared token."""
-    if not DATA_PLANE_API_TOKEN:
+    if not DATA_PLANE_API_TOKEN and not DATA_PLANE_TOKENS:
         raise HTTPException(status_code=500, detail="DATA_PLANE_API_TOKEN not configured")
 
     token = request.headers.get("x-data-plane-token")
@@ -234,16 +241,21 @@ def get_data_plane_identity(request: Request) -> DataPlaneContext:
         if auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1]
 
-    if token != DATA_PLANE_API_TOKEN:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
-
     tenant_id = request.headers.get("x-tenant-id") or DATA_PLANE_TENANT_ID
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing tenant id")
     if DATA_PLANE_TENANT_ID and tenant_id != DATA_PLANE_TENANT_ID:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
 
-    return DataPlaneContext(tenant_id=tenant_id)
+    if DATA_PLANE_TOKENS:
+        allowed_tokens = DATA_PLANE_TOKENS.get(tenant_id, [])
+        if token not in allowed_tokens:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
+    elif token != DATA_PLANE_API_TOKEN:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
+
+    agent_id = request.headers.get("x-agent-id") or "unknown"
+    return DataPlaneContext(tenant_id=tenant_id, agent_id=agent_id)
 
 
 class TrainJobRequest(BaseModel):
@@ -466,6 +478,14 @@ async def list_pending_jobs(
 ):
     """List jobs for the data plane by status."""
     safe_limit = max(1, min(limit, MAX_JOBS_LIMIT))
+    if DATA_PLANE_LOG_POLLS:
+        logger.info(
+            "Data-plane poll agent_id=%s tenant_id=%s status=%s limit=%s",
+            identity.agent_id,
+            identity.tenant_id,
+            status_filter,
+            safe_limit,
+        )
     rows = await fetch_jobs_by_state(identity.tenant_id, status_filter, safe_limit)
     summaries: List[JobSummary] = []
     for r in rows:

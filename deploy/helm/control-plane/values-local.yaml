@@ -29,3 +29,5 @@ env:
   KAFKA_SSL_KEY_FILE: ""
   DATA_PLANE_API_TOKEN: "local-dev-token"
   DATA_PLANE_TENANT_ID: "local-dev-tenant"
+  DATA_PLANE_API_TOKENS: ""
+  DATA_PLANE_LOG_POLLS: "true"

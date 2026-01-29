@@ -46,6 +46,8 @@ env:
   KAFKA_SSL_KEY_FILE: ""
   DATA_PLANE_API_TOKEN: ""
   DATA_PLANE_TENANT_ID: ""
+  DATA_PLANE_API_TOKENS: ""
+  DATA_PLANE_LOG_POLLS: "true"
 
 extraEnv: []
 extraEnvFrom: []

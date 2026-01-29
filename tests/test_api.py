@@ -128,3 +128,24 @@ def test_internal_jobs_with_data_plane_token(client, monkeypatch) -> None:
     )
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+def test_internal_jobs_with_token_rotation_map(client, monkeypatch) -> None:
+    async def fake_fetch_jobs_by_state(tenant_id: str, state: str, limit: int):
+        assert tenant_id == "tenant-1"
+        return []
+
+    monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
+    monkeypatch.setattr(main_mod, "DATA_PLANE_API_TOKEN", "")
+    monkeypatch.setattr(main_mod, "DATA_PLANE_TENANT_ID", "")
+    monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {"tenant-1": ["old-token", "new-token"]})
+    resp = client.get(
+        "/internal/jobs?status_filter=SUBMITTED&limit=1",
+        headers={
+            "Authorization": "Bearer new-token",
+            "X-Tenant-Id": "tenant-1",
+            "X-Agent-Id": "agent-123",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []

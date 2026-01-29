@@ -2,6 +2,7 @@
 
 import logging
 import os
+import socket
 # Why put logging setup outside main()?
 # Anything imported before you call setup_logging() might emit logs (or configure logging itself).
 # Calling it at module import time ensures all logs (including early startup) use your format/level.
@@ -39,6 +40,7 @@ TRAINING_NAMESPACE = os.environ.get("TRAINING_NAMESPACE", "training-jobs")
 CONTROL_PLANE_URL = os.environ.get("CONTROL_PLANE_URL", "")
 DATA_PLANE_API_TOKEN = os.environ.get("DATA_PLANE_API_TOKEN", "")
 DATA_PLANE_TENANT_ID = os.environ.get("DATA_PLANE_TENANT_ID", "")
+DATA_PLANE_AGENT_ID = os.environ.get("DATA_PLANE_AGENT_ID") or os.environ.get("HOSTNAME") or socket.gethostname()
 
 http_client: httpx.AsyncClient | None = None
 cancelled_seen: set[str] = set()
@@ -144,6 +146,8 @@ def _data_plane_headers() -> dict:
         headers["Authorization"] = f"Bearer {DATA_PLANE_API_TOKEN}"
     if DATA_PLANE_TENANT_ID:
         headers["X-Tenant-Id"] = DATA_PLANE_TENANT_ID
+    if DATA_PLANE_AGENT_ID:
+        headers["X-Agent-Id"] = DATA_PLANE_AGENT_ID
     return headers
 
 

@@ -1,5 +1,6 @@
 """Environment-driven configuration defaults."""
 
+import json
 import os
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
@@ -27,3 +28,22 @@ CLERK_JWT_ALGORITHM = os.environ.get("CLERK_JWT_ALGORITHM", "RS256")
 CONTROL_PLANE_URL = os.environ.get("CONTROL_PLANE_URL", "")
 DATA_PLANE_API_TOKEN = os.environ.get("DATA_PLANE_API_TOKEN", "")
 DATA_PLANE_TENANT_ID = os.environ.get("DATA_PLANE_TENANT_ID", "")
+DATA_PLANE_API_TOKENS = os.environ.get("DATA_PLANE_API_TOKENS", "")
+DATA_PLANE_LOG_POLLS = os.environ.get("DATA_PLANE_LOG_POLLS", "true").lower() in ("1", "true", "yes")
+
+
+def parse_data_plane_tokens(raw: str) -> dict[str, list[str]]:
+    """Parse DATA_PLANE_API_TOKENS into a tenant->tokens map."""
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    tokens_map: dict[str, list[str]] = {}
+    for tenant_id, tokens in (data or {}).items():
+        if isinstance(tokens, str):
+            tokens_map[tenant_id] = [tokens]
+        elif isinstance(tokens, list):
+            tokens_map[tenant_id] = [t for t in tokens if isinstance(t, str)]
+    return tokens_map

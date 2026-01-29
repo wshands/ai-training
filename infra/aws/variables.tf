@@ -47,6 +47,12 @@ variable "postgres_dsn" {
   default     = "postgresql://postgres:postgres@postgres:5432/controlplane"
 }
 
+variable "postgres_dsn_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN for POSTGRES_DSN (optional)"
+  default     = ""
+}
+
 variable "redis_url" {
   type        = string
   description = "Redis connection URL"
@@ -109,6 +115,18 @@ variable "kafka_sasl_password" {
   default     = ""
 }
 
+variable "kafka_sasl_username_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN for KAFKA_SASL_USERNAME (optional)"
+  default     = ""
+}
+
+variable "kafka_sasl_password_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN for KAFKA_SASL_PASSWORD (optional)"
+  default     = ""
+}
+
 variable "kafka_ssl_ca_file" {
   type        = string
   description = "Path to Kafka SSL CA file in the task"
@@ -130,5 +148,11 @@ variable "kafka_ssl_key_file" {
 variable "alb_certificate_arn" {
   type        = string
   description = "ACM certificate ARN for HTTPS listener (optional)"
+  default     = ""
+}
+
+variable "msk_cluster_arn" {
+  type        = string
+  description = "MSK cluster ARN for IAM auth policy (optional)"
   default     = ""
 }

@@ -42,6 +42,8 @@ env:
   KAFKA_SSL_KEY_FILE: ""
   DATA_PLANE_API_TOKEN: "<data-plane-token>"
   DATA_PLANE_TENANT_ID: "<tenant-id>"
+  DATA_PLANE_API_TOKENS: ""
+  DATA_PLANE_LOG_POLLS: "false"
 
 secretMounts:
   - name: kafka-ca

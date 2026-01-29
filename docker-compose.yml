@@ -123,6 +123,8 @@ services:
       CLERK_JWT_ALGORITHM: RS256
       DATA_PLANE_API_TOKEN: local-dev-token
       DATA_PLANE_TENANT_ID: org_38SbNxZ65gr09sqKWm378MUjsFV
+      DATA_PLANE_API_TOKENS: ""
+      DATA_PLANE_LOG_POLLS: "false"
 
     depends_on:
       db-init:

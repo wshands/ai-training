@@ -65,6 +65,10 @@ spec:
               value: {{ .Values.env.DATA_PLANE_API_TOKEN | quote }}
             - name: DATA_PLANE_TENANT_ID
               value: {{ .Values.env.DATA_PLANE_TENANT_ID | quote }}
+            - name: DATA_PLANE_API_TOKENS
+              value: {{ .Values.env.DATA_PLANE_API_TOKENS | quote }}
+            - name: DATA_PLANE_LOG_POLLS
+              value: {{ .Values.env.DATA_PLANE_LOG_POLLS | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
