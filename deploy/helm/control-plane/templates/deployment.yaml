@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.env.CLERK_AUDIENCE | quote }}
             - name: CLERK_JWT_ALGORITHM
               value: {{ .Values.env.CLERK_JWT_ALGORITHM | quote }}
+            - name: CONTROL_PLANE_ADMIN_TOKEN
+              value: {{ .Values.env.CONTROL_PLANE_ADMIN_TOKEN | quote }}
             - name: KAFKA_SECURITY_PROTOCOL
               value: {{ .Values.env.KAFKA_SECURITY_PROTOCOL | quote }}
             - name: KAFKA_SASL_MECHANISM

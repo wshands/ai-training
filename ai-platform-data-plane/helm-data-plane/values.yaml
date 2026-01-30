@@ -1,26 +1,10 @@
-#namespace: training-jobs
-
 jobLauncher:
   image:
     repository: ai-platform-job-launcher
     tag: latest
     pullPolicy: Never
   replicas: 1
-  # use mac ip here
-  kafkaBootstrap: "host.minikube.internal:19092"
-  jobEventsTopic: "job-events"
   trainingNamespace: "training-jobs"
   controlPlaneUrl: "http://host.docker.internal:8000"
   dataPlaneApiToken: "local-dev-token"
   dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"
-
-
-kafka:
-  enabled: false
-  namespace: kafka
-  image:
-    repository: apache/kafka
-    tag: "3.7.0"
-  clusterId: "Wf5GFtN5T2q7hSg7YqJ0yQ=="
-  storage:
-    size: 1Gi

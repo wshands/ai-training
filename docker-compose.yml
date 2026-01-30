@@ -121,6 +121,7 @@ services:
       CLERK_JWKS_URL: https://bursting-asp-1.clerk.accounts.dev/.well-known/jwks.json
       CLERK_ISSUER: https://bursting-asp-1.clerk.accounts.dev
       CLERK_JWT_ALGORITHM: RS256
+      CONTROL_PLANE_ADMIN_TOKEN: local-admin-token
       DATA_PLANE_API_TOKEN: local-dev-token
       DATA_PLANE_TENANT_ID: org_38SbNxZ65gr09sqKWm378MUjsFV
       DATA_PLANE_API_TOKENS: ""

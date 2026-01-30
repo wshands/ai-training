@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 import uuid
 import time
 import json
+import secrets
 import redis.asyncio as redis
 
 from datetime import datetime
@@ -63,6 +64,7 @@ from common.ai_training_common.config import (
     DATA_PLANE_API_TOKENS,
     DATA_PLANE_LOG_POLLS,
     parse_data_plane_tokens,
+    CONTROL_PLANE_ADMIN_TOKEN,
 )
 from .kafka_bus import init_kafka, send_event
 from common.ai_training_common.db import (
@@ -114,7 +116,8 @@ class DataPlaneContext(BaseModel):
     agent_id: str
 
 
-DATA_PLANE_TOKENS = parse_data_plane_tokens(DATA_PLANE_API_TOKENS)
+DATA_PLANE_TOKENS: dict[str, list[str]] = parse_data_plane_tokens(DATA_PLANE_API_TOKENS)
+DATA_PLANE_TOKEN_REDIS_KEY = "data_plane_tokens"
 
 
 DEFAULT_JOBS_LIMIT = 50
@@ -230,16 +233,58 @@ def get_ws_identity(websocket: WebSocket) -> AuthContext:
     return decode_clerk_token(token)
 
 
-def get_data_plane_identity(request: Request) -> DataPlaneContext:
+def _extract_bearer_token(request: Request) -> str | None:
+    token = request.headers.get("x-data-plane-token")
+    if token:
+        return token
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1]
+    return None
+
+
+def get_admin_identity(request: Request) -> None:
+    """Validate the admin token for internal admin endpoints."""
+    if not CONTROL_PLANE_ADMIN_TOKEN:
+        raise HTTPException(status_code=500, detail="CONTROL_PLANE_ADMIN_TOKEN not configured")
+    token = _extract_bearer_token(request)
+    if token != CONTROL_PLANE_ADMIN_TOKEN:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
+
+
+async def _load_data_plane_tokens() -> dict[str, list[str]]:
+    if redis_client is None:
+        return DATA_PLANE_TOKENS
+    raw = await redis_client.get(DATA_PLANE_TOKEN_REDIS_KEY)
+    if not raw:
+        return DATA_PLANE_TOKENS
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return DATA_PLANE_TOKENS
+    tokens_map: dict[str, list[str]] = {}
+    for tenant_id, tokens in (data or {}).items():
+        if isinstance(tokens, str):
+            tokens_map[tenant_id] = [tokens]
+        elif isinstance(tokens, list):
+            tokens_map[tenant_id] = [t for t in tokens if isinstance(t, str)]
+    return tokens_map
+
+
+async def _store_data_plane_tokens(tokens_map: dict[str, list[str]]) -> None:
+    global DATA_PLANE_TOKENS
+    DATA_PLANE_TOKENS = tokens_map
+    if redis_client is None:
+        return
+    await redis_client.set(DATA_PLANE_TOKEN_REDIS_KEY, json.dumps(tokens_map))
+
+
+async def get_data_plane_identity(request: Request) -> DataPlaneContext:
     """Authenticate data-plane requests using a shared token."""
     if not DATA_PLANE_API_TOKEN and not DATA_PLANE_TOKENS:
         raise HTTPException(status_code=500, detail="DATA_PLANE_API_TOKEN not configured")
 
-    token = request.headers.get("x-data-plane-token")
-    if not token:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            token = auth_header.split(" ", 1)[1]
+    token = _extract_bearer_token(request)
 
     tenant_id = request.headers.get("x-tenant-id") or DATA_PLANE_TENANT_ID
     if not tenant_id:
@@ -247,8 +292,9 @@ def get_data_plane_identity(request: Request) -> DataPlaneContext:
     if DATA_PLANE_TENANT_ID and tenant_id != DATA_PLANE_TENANT_ID:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
 
-    if DATA_PLANE_TOKENS:
-        allowed_tokens = DATA_PLANE_TOKENS.get(tenant_id, [])
+    tokens_map = await _load_data_plane_tokens()
+    if tokens_map:
+        allowed_tokens = tokens_map.get(tenant_id, [])
         if token not in allowed_tokens:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
     elif token != DATA_PLANE_API_TOKEN:
@@ -266,6 +312,11 @@ class TrainJobRequest(BaseModel):
     lr: float = 1e-3
     distributed: bool = False
     extra_config: dict | None = None
+
+
+class DataPlaneTokenRequest(BaseModel):
+    tenant_id: str
+    token: Optional[str] = None
 
 
 def load_k8s_clients():
@@ -522,6 +573,57 @@ async def ingest_data_plane_event(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
     return {"status": "accepted", "event_id": event.event_id}
+
+
+@app.get("/internal/admin/data-plane-tokens")
+async def list_data_plane_tokens(
+    tenant_id: Optional[str] = None,
+    _: None = Depends(get_admin_identity),
+):
+    """List data-plane tokens for all tenants or a specific tenant."""
+    tokens_map = await _load_data_plane_tokens()
+    if tenant_id:
+        return {tenant_id: tokens_map.get(tenant_id, [])}
+    return tokens_map
+
+
+@app.post("/internal/admin/data-plane-tokens")
+async def mint_data_plane_token(
+    req: DataPlaneTokenRequest,
+    _: None = Depends(get_admin_identity),
+):
+    """Mint a data-plane token for a tenant (manual rotation)."""
+    tokens_map = await _load_data_plane_tokens()
+    token = req.token or secrets.token_urlsafe(32)
+    tokens = list(tokens_map.get(req.tenant_id, []))
+    if token not in tokens:
+        tokens.append(token)
+    tokens_map[req.tenant_id] = tokens
+    await _store_data_plane_tokens(tokens_map)
+    return {"tenant_id": req.tenant_id, "token": token, "tokens": tokens}
+
+
+@app.delete("/internal/admin/data-plane-tokens")
+async def revoke_data_plane_token(
+    req: DataPlaneTokenRequest,
+    _: None = Depends(get_admin_identity),
+):
+    """Remove a data-plane token or clear all tokens for a tenant."""
+    tokens_map = await _load_data_plane_tokens()
+    tokens = list(tokens_map.get(req.tenant_id, []))
+
+    if req.token:
+        tokens = [t for t in tokens if t != req.token]
+    else:
+        tokens = []
+
+    if tokens:
+        tokens_map[req.tenant_id] = tokens
+    else:
+        tokens_map.pop(req.tenant_id, None)
+
+    await _store_data_plane_tokens(tokens_map)
+    return {"tenant_id": req.tenant_id, "tokens": tokens}
 
 
 @app.websocket("/ws/jobs/{job_id}")

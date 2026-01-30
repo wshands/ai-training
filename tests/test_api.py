@@ -149,3 +149,44 @@ def test_internal_jobs_with_token_rotation_map(client, monkeypatch) -> None:
     )
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+def test_admin_mint_and_list_tokens(client, monkeypatch) -> None:
+    monkeypatch.setattr(main_mod, "CONTROL_PLANE_ADMIN_TOKEN", "admin-token")
+    monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {})
+    monkeypatch.setattr(main_mod, "redis_client", None)
+
+    resp = client.post(
+        "/internal/admin/data-plane-tokens",
+        headers={"Authorization": "Bearer admin-token"},
+        json={"tenant_id": "tenant-1"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tenant_id"] == "tenant-1"
+    assert data["token"]
+    assert data["token"] in data["tokens"]
+
+    resp = client.get(
+        "/internal/admin/data-plane-tokens?tenant_id=tenant-1",
+        headers={"Authorization": "Bearer admin-token"},
+    )
+    assert resp.status_code == 200
+    listed = resp.json()
+    assert "tenant-1" in listed
+    assert data["token"] in listed["tenant-1"]
+
+
+def test_admin_revoke_token(client, monkeypatch) -> None:
+    monkeypatch.setattr(main_mod, "CONTROL_PLANE_ADMIN_TOKEN", "admin-token")
+    monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {"tenant-1": ["token-a", "token-b"]})
+    monkeypatch.setattr(main_mod, "redis_client", None)
+
+    resp = client.request(
+        "DELETE",
+        "/internal/admin/data-plane-tokens",
+        headers={"Authorization": "Bearer admin-token"},
+        json={"tenant_id": "tenant-1", "token": "token-a"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tokens"] == ["token-b"]

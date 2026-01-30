@@ -110,3 +110,80 @@ DATA_PLANE_TENANT_ID=org_123
 - Header names are case-insensitive (`X-Agent-Id` vs `x-agent-id`).
 - If `DATA_PLANE_API_TOKENS` is set, the single `DATA_PLANE_API_TOKEN` is ignored.
 - Use `DATA_PLANE_LOG_POLLS=false` to disable poll logging in the control-plane.
+
+## Admin endpoints (manual token minting)
+
+Use these endpoints to mint or list tokens without editing env vars by hand.
+Protect them with `CONTROL_PLANE_ADMIN_TOKEN`.
+
+- `GET /internal/admin/data-plane-tokens?tenant_id=<id>`
+- `POST /internal/admin/data-plane-tokens` with JSON body:
+
+```json
+{ "tenant_id": "org_123" }
+```
+
+Send the admin token as:
+
+```
+Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>
+```
+
+Note: tokens are stored in-process and, if Redis is available, persisted in
+Redis under the `data_plane_tokens` key.
+
+### How it works (short explanation)
+
+The admin endpoints use `CONTROL_PLANE_ADMIN_TOKEN` (bearer auth). On a `POST`,
+the control-plane loads the current token map (from Redis if present, otherwise
+from in-process memory), generates a token if needed, appends it to the tenant,
+and writes the updated map back to Redis. The data-plane auth path always checks
+the Redis-backed map first and falls back to the single `DATA_PLANE_API_TOKEN`
+only if the map is empty.
+
+### Example usage
+
+Mint a token for a tenant:
+
+```bash
+curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"org_123"}' \
+  http://localhost:8000/internal/admin/data-plane-tokens
+```
+
+List tokens for a tenant:
+
+```bash
+curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+  "http://localhost:8000/internal/admin/data-plane-tokens?tenant_id=org_123"
+```
+
+Sample response:
+
+```json
+{
+  "org_123": [
+    "token-abc",
+    "token-def"
+  ]
+}
+```
+
+Revoke a token for a tenant (If token is omitted, it clears all tokens for the tenant.):
+
+```bash
+curl -X DELETE -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"org_123","token":"token-abc"}' \
+  http://localhost:8000/internal/admin/data-plane-tokens
+```
+
+Add a token for a tenant
+
+```bash
+curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"org_...","token":"another-token"}' \
+  http://localhost:8000/internal/admin/data-plane-tokens
+```
