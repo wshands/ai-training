@@ -124,6 +124,9 @@ services:
       CONTROL_PLANE_ADMIN_TOKEN: local-admin-token
       DATA_PLANE_API_TOKEN: local-dev-token
       DATA_PLANE_TENANT_ID: org_38SbNxZ65gr09sqKWm378MUjsFV
+      # Optional: per-tenant token map for rotation (JSON string).
+      # Example:
+      # DATA_PLANE_API_TOKENS: '{"org_123":["token-a","token-b"],"org_456":["token-x"]}'
       DATA_PLANE_API_TOKENS: ""
       DATA_PLANE_LOG_POLLS: "false"
 
