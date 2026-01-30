@@ -17,7 +17,7 @@ and enforces tenant isolation.
 
 ## Concepts
 
-### tenant_id
+### tenant_id (`DATA_PLANE_TENANT_ID`)
 
 The tenant represents the customer (Clerk organization) whose jobs are being
 executed. In the control-plane, `tenant_id` is derived from the Clerk JWT:
@@ -30,8 +30,9 @@ The data-plane launcher is configured with the tenant it serves:
 - `DATA_PLANE_TENANT_ID=<org_id>`
 
 This ensures that a launcher only receives jobs for its assigned tenant.
+If the tenant id does not match, the control-plane rejects the request.
 
-### API token (data-plane token)
+### API token (`DATA_PLANE_API_TOKEN`)
 
 The token authenticates the launcher to the control-plane. It is sent on every
 internal request as a bearer token:
@@ -54,7 +55,7 @@ Example:
 DATA_PLANE_API_TOKENS='{"org_123": ["old-token", "new-token"]}'
 ```
 
-### agent_id
+### agent_id (`DATA_PLANE_AGENT_ID`)
 
 The agent identifies a specific launcher instance and is used for auditing,
 rate limiting, and targeted revocation in the future.
