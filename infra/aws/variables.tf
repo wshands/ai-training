@@ -31,7 +31,7 @@ variable "event_processor_desired_count" {
 variable "kafka_bootstrap" {
   type        = string
   description = "Kafka bootstrap servers"
-  default     = "kafka:9092"
+  default     = ""
 }
 
 variable "kafka_topic" {
@@ -44,7 +44,7 @@ variable "postgres_dsn" {
   type        = string
   description = "Postgres DSN for control-plane"
   sensitive   = true
-  default     = "postgresql://postgres:postgres@postgres:5432/controlplane"
+  default     = ""
 }
 
 variable "postgres_dsn_secret_arn" {
@@ -57,7 +57,7 @@ variable "redis_url" {
   type        = string
   description = "Redis connection URL"
   sensitive   = true
-  default     = "redis://redis:6379/0"
+  default     = ""
 }
 
 variable "log_level" {
@@ -155,4 +155,58 @@ variable "msk_cluster_arn" {
   type        = string
   description = "MSK cluster ARN for IAM auth policy (optional)"
   default     = ""
+}
+
+variable "msk_client_port" {
+  type        = number
+  description = "MSK serverless client port"
+  default     = 9098
+}
+
+variable "postgres_engine_version" {
+  type        = string
+  description = "Postgres engine version"
+  default     = "15.4"
+}
+
+variable "postgres_instance_class" {
+  type        = string
+  description = "Postgres instance class"
+  default     = "db.t4g.small"
+}
+
+variable "postgres_allocated_storage" {
+  type        = number
+  description = "Postgres allocated storage (GB)"
+  default     = 50
+}
+
+variable "postgres_db_name" {
+  type        = string
+  description = "Postgres database name"
+  default     = "controlplane"
+}
+
+variable "postgres_username" {
+  type        = string
+  description = "Postgres username"
+  default     = "controlplane"
+}
+
+variable "postgres_multi_az" {
+  type        = bool
+  description = "Enable Multi-AZ for Postgres"
+  default     = false
+}
+
+variable "redis_node_type" {
+  type        = string
+  description = "ElastiCache node type"
+  default     = "cache.t4g.small"
+}
+
+variable "redis_engine_version" {
+  type        = string
+  description = "ElastiCache Redis engine version"
+  default     = "7.1"
 }

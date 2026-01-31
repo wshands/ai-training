@@ -4,10 +4,10 @@ event_processor_image     = "123456789012.dkr.ecr.us-west-2.amazonaws.com/event-
 control_plane_desired_count = 1
 event_processor_desired_count = 1
 
-kafka_bootstrap           = "b-1.example.msk.us-west-2.amazonaws.com:9094"
+kafka_bootstrap           = ""
 kafka_topic               = "job-events"
-kafka_security_protocol   = "SASL_SSL"
-kafka_sasl_mechanism      = "AWS_MSK_IAM"
+kafka_security_protocol   = ""
+kafka_sasl_mechanism      = ""
 kafka_sasl_username       = ""
 kafka_sasl_password       = ""
 kafka_ssl_ca_file         = ""
@@ -15,12 +15,12 @@ kafka_ssl_cert_file       = ""
 kafka_ssl_key_file        = ""
 
 postgres_dsn              = ""
-redis_url                 = "redis://example.abcdef.ng.0001.usw2.cache.amazonaws.com:6379/0"
+redis_url                 = ""
 
-postgres_dsn_secret_arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:control-plane/postgres_dsn-abc123"
+postgres_dsn_secret_arn         = ""
 kafka_sasl_username_secret_arn  = ""
 kafka_sasl_password_secret_arn  = ""
-msk_cluster_arn                 = "arn:aws:kafka:us-west-2:123456789012:cluster/ai-platform/abcd1234-5678-90ef-abcd-1234567890ab-1"
+msk_cluster_arn                 = ""
 
 clerk_jwks_url            = "https://bursting-asp-1.clerk.accounts.dev/.well-known/jwks.json"
 clerk_issuer              = "https://bursting-asp-1.clerk.accounts.dev"

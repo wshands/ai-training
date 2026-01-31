@@ -1,25 +1,31 @@
 locals {
+  kafka_bootstrap_value = var.kafka_bootstrap != "" ? var.kafka_bootstrap : data.aws_msk_bootstrap_brokers.this.bootstrap_brokers_sasl_iam
+  redis_url_value       = var.redis_url != "" ? var.redis_url : "redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
+  kafka_security_protocol_value = var.kafka_security_protocol != "" ? var.kafka_security_protocol : "SASL_SSL"
+  kafka_sasl_mechanism_value    = var.kafka_sasl_mechanism != "" ? var.kafka_sasl_mechanism : "AWS_MSK_IAM"
+  postgres_dsn_secret_arn_value = var.postgres_dsn_secret_arn != "" ? var.postgres_dsn_secret_arn : aws_secretsmanager_secret.postgres_dsn.arn
+  msk_cluster_arn_value         = var.msk_cluster_arn != "" ? var.msk_cluster_arn : aws_msk_serverless_cluster.this.arn
+
   common_env = merge(
     {
-      KAFKA_BOOTSTRAP         = var.kafka_bootstrap
+      KAFKA_BOOTSTRAP         = local.kafka_bootstrap_value
       KAFKA_TOPIC             = var.kafka_topic
-      REDIS_URL               = var.redis_url
-      KAFKA_SECURITY_PROTOCOL = var.kafka_security_protocol
-      KAFKA_SASL_MECHANISM    = var.kafka_sasl_mechanism
+      REDIS_URL               = local.redis_url_value
+      KAFKA_SECURITY_PROTOCOL = local.kafka_security_protocol_value
+      KAFKA_SASL_MECHANISM    = local.kafka_sasl_mechanism_value
       KAFKA_SSL_CA_FILE       = var.kafka_ssl_ca_file
       KAFKA_SSL_CERT_FILE     = var.kafka_ssl_cert_file
       KAFKA_SSL_KEY_FILE      = var.kafka_ssl_key_file
       LOG_LEVEL               = var.log_level
     },
-    var.postgres_dsn_secret_arn == "" ? { POSTGRES_DSN = var.postgres_dsn } : {},
     var.kafka_sasl_username_secret_arn == "" ? { KAFKA_SASL_USERNAME = var.kafka_sasl_username } : {},
     var.kafka_sasl_password_secret_arn == "" ? { KAFKA_SASL_PASSWORD = var.kafka_sasl_password } : {}
   )
 
   common_secrets = flatten([
-    var.postgres_dsn_secret_arn != "" ? [{
+    local.postgres_dsn_secret_arn_value != "" ? [{
       name      = "POSTGRES_DSN"
-      valueFrom = var.postgres_dsn_secret_arn
+      valueFrom = local.postgres_dsn_secret_arn_value
     }] : [],
     var.kafka_sasl_username_secret_arn != "" ? [{
       name      = "KAFKA_SASL_USERNAME"
@@ -33,7 +39,7 @@ locals {
 
   secret_arns = [
     for arn in [
-      var.postgres_dsn_secret_arn,
+      local.postgres_dsn_secret_arn_value,
       var.kafka_sasl_username_secret_arn,
       var.kafka_sasl_password_secret_arn
     ] : arn if arn != ""
@@ -109,7 +115,7 @@ resource "aws_iam_role" "task" {
 }
 
 data "aws_iam_policy_document" "msk_iam" {
-  count = var.msk_cluster_arn != "" ? 1 : 0
+  count = local.msk_cluster_arn_value != "" ? 1 : 0
   statement {
     effect = "Allow"
     actions = [
@@ -123,20 +129,20 @@ data "aws_iam_policy_document" "msk_iam" {
       "kafka-cluster:AlterGroup",
     ]
     resources = [
-      var.msk_cluster_arn,
-      "${var.msk_cluster_arn}/*",
+      local.msk_cluster_arn_value,
+      "${local.msk_cluster_arn_value}/*",
     ]
   }
 }
 
 resource "aws_iam_policy" "msk_iam" {
-  count  = var.msk_cluster_arn != "" ? 1 : 0
+  count  = local.msk_cluster_arn_value != "" ? 1 : 0
   name   = "ai-platform-msk-iam"
   policy = data.aws_iam_policy_document.msk_iam[0].json
 }
 
 resource "aws_iam_role_policy_attachment" "task_msk_iam" {
-  count      = var.msk_cluster_arn != "" ? 1 : 0
+  count      = local.msk_cluster_arn_value != "" ? 1 : 0
   role       = aws_iam_role.task.name
   policy_arn = aws_iam_policy.msk_iam[0].arn
 }

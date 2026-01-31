@@ -1,0 +1,10 @@
+jobLauncher:
+  image:
+    repository: <REGISTRY>/job-launcher
+    tag: <IMAGE_TAG>
+    pullPolicy: IfNotPresent
+  replicas: 1
+  trainingNamespace: "training-jobs"
+  controlPlaneUrl: "https://control-plane.example.com"
+  dataPlaneApiToken: "<data-plane-token>"
+  dataPlaneTenantId: "<tenant-id>"

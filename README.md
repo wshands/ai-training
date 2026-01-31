@@ -19,12 +19,11 @@ To start the cluster:
  minikube start
 ```
 
-
 To run the full stack locally with Docker Compose:
 ```bash
 docker-compose up  --build --force-recreate
-# remove the unused job-launcher container in the local mac since it will be run in minikube
 ```
+
 To bring down the local services:
 ```bash
 docker-compose down -v
@@ -48,7 +47,14 @@ kubectl get pods  -n training-jobs
 
 To install the data plane with Helm:
 ```bash
-  helm upgrade --install ai-platform-data-plane ./ai-platform-data-plane/helm-data-plane -n training-jobs --create-namespace
+helm upgrade --install ai-platform-data-plane ./deploy/helm/data-plane \
+  --namespace training-jobs --create-namespace \
+  -f ./deploy/helm/data-plane/values-local.yaml
+```
+
+To uninstall the data plane:
+```bash
+ helm uninstall ai-platform-data-plane --namespace training-jobs
 ```
 
 To examine the job information in the DB:
