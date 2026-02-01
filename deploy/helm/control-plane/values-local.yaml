@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ai-platform-d-control-plane
+  repository: ai-training-control-plane
   tag: latest
   pullPolicy: IfNotPresent
 

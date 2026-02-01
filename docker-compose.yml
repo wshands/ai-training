@@ -64,7 +64,7 @@ services:
   db-init:
     build:
       context: .
-      dockerfile: control-plane/Dockerfile.dev
+      dockerfile: control-plane/api/Dockerfile.dev
     environment:
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
     depends_on:
@@ -106,7 +106,7 @@ services:
   control-plane:
     build:
       context: .
-      dockerfile: control-plane/Dockerfile.dev   # 👈 only in dev compose
+      dockerfile: control-plane/api/Dockerfile.dev   # 👈 only in dev compose
     environment:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
@@ -143,7 +143,7 @@ services:
       - "8000:8000"
       - "5678:5678"
     volumes:
-      - ./control-plane:/app/control-plane   # 👈 only in dev compose
+      - ./control-plane/api:/app/control-plane   # 👈 only in dev compose
       - ./common:/app/common   # 👈 only in dev compose
 
 
@@ -170,7 +170,7 @@ services:
   event-processor:
     build:
       context: .
-      dockerfile: event-processor/Dockerfile
+      dockerfile: control-plane/event-processor/Dockerfile
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
@@ -192,7 +192,7 @@ services:
     ports:
       - "5679:5679"
     volumes:
-      - ./event-processor:/app/event-processor   # 👈 only in dev compose
+      - ./control-plane/event-processor:/app/event-processor   # 👈 only in dev compose
       - ./common:/app/common   # 👈 only in dev compose
 
 volumes:

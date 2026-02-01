@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
 
 COPY common /app/common
 
-COPY control-plane /app/control-plane
+COPY control-plane/api /app/control-plane
 
 RUN pip install --no-cache-dir -r /app/control-plane/requirements.txt
 
@@ -14,6 +14,6 @@ ENV PYTHONPATH=/app:/app/control-plane
 # app on 8000, debug on 5678
 EXPOSE 8000 5678
 
-COPY control-plane/entrypoint.sh /app/entrypoint.sh
+COPY control-plane/api/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 CMD ["/app/entrypoint.sh"]

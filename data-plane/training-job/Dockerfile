@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /opt/app
 
 # Copy app code
-COPY training-job/ /opt/app/
+COPY data-plane/training-job/ /opt/app/
 
 # Copy shared common package into the container
 COPY common/ /opt/app/common/

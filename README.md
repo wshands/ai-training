@@ -2,14 +2,12 @@
 
 This repo contains a full, opinionated starting point for a SaaS AI training platform:
 
-- control-plane/ – FastAPI API to submit training jobs
-- event-processor/ – Kafka consumer that persists job events and state
-- job-launcher/ – Kafka consumer that launches Kubernetes Jobs
-- training-job/ – Container image that runs training and emits events
-- ui-dashboard/ – Next.js UI for jobs
-- deploy/helm/ – Helm chart to deploy platform components
-- k8s/data-plane/ – Example namespace + RBAC for customer cluster
-- infra/aws/ – Terraform skeleton for AWS infra (VPC)
+- control-plane/api/ – FastAPI API to submit training jobs
+- control-plane/event-processor/ – Kafka consumer that persists job events and state
+- control-plane/ui/ – React UI for jobs
+- data-plane/ – Job launcher + training job runtime for customer clusters
+- deploy/helm/ – Helm charts to deploy platform components
+- infra/aws/ – Terraform skeleton for AWS infra
 - docker-compose.yml – Local dev stack (Kafka, Postgres, services)
 - .github/workflows/ – CI workflow to build/push Docker images
 
@@ -32,8 +30,8 @@ docker-compose down -v
 To build the (data plane) job launcher and training job in minikube:
 ```bash
 eval $(minikube docker-env)
-docker build -f job-launcher/Dockerfile -t ai-platform-job-launcher:latest .
-docker build -f training-job/Dockerfile -t ai-platform-training-job:latest .
+docker build -f data-plane/Dockerfile -t ai-platform-job-launcher:latest .
+docker build -f data-plane/training-job/Dockerfile -t ai-platform-training-job:latest .
 ```
 
 To delete old training jobs
@@ -47,21 +45,21 @@ kubectl get pods  -n training-jobs
 
 To install the data plane with Helm:
 ```bash
-helm upgrade --install ai-platform-data-plane ./deploy/helm/data-plane \
+helm upgrade --install ai-training-data-plane ./deploy/helm/data-plane \
   --namespace training-jobs --create-namespace \
   -f ./deploy/helm/data-plane/values-local.yaml
 ```
 
 To uninstall the data plane:
 ```bash
- helm uninstall ai-platform-data-plane --namespace training-jobs
+ helm uninstall ai-training-data-plane --namespace training-jobs
 ```
 
 To examine the job information in the DB:
 ```bash
-docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM jobs;"
-docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_events;"
-docker exec -it ai-platform-d-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_state;"
+docker exec -it ai-training-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM jobs;"
+docker exec -it ai-training-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_events;"
+docker exec -it ai-training-postgres-1  psql -U postgres -d controlplane -c "SELECT * FROM job_state;"
 ```
 
 To watch Kafka queue:
@@ -94,7 +92,7 @@ curl -X POST http://localhost:8000/jobs/train \
 
 To start UI not using VSCode:
 ```bash
- cd frontend_full
+ cd control-plane/ui
  npm install
  npm start
 ```

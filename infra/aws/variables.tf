@@ -7,13 +7,13 @@ variable "region" {
 variable "control_plane_image" {
   type        = string
   description = "ECR image for the control-plane API"
-  default     = "ai-platform-d-control-plane:latest"
+  default     = "ai-training-control-plane:latest"
 }
 
 variable "event_processor_image" {
   type        = string
   description = "ECR image for the event-processor"
-  default     = "ai-platform-d-event-processor:latest"
+  default     = "ai-training-event-processor:latest"
 }
 
 variable "control_plane_desired_count" {

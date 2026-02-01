@@ -3,7 +3,7 @@ WORKDIR /app
 
 COPY common /app/common
 
-COPY control-plane /app/control-plane
+COPY control-plane/api /app/control-plane
 
 RUN pip install --no-cache-dir -r /app/control-plane/requirements.txt
 EXPOSE 8000
