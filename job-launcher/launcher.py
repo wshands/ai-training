@@ -1,40 +1,33 @@
-"""Launch Kubernetes training jobs in response to Kafka events."""
+"""Launch Kubernetes training jobs by polling the control-plane."""
 
+import asyncio
+import json
 import logging
 import os
 import socket
-# Why put logging setup outside main()?
-# Anything imported before you call setup_logging() might emit logs (or configure logging itself).
-# Calling it at module import time ensures all logs (including early startup) use your format/level.
-# In containers, the entrypoint module is the natural “one-time per process” place.
-# force=True tells Python to remove any existing logging handlers and reconfigure
-# logging with your settings. This is useful in container apps because frameworks
-# (uvicorn/gunicorn) or imported libraries might configure logging before your code runs.
+import time
+
+import httpx
+from kubernetes import client
+from kubernetes import config as k8s_config
+from kubernetes.config.config_exception import ConfigException
+from common.ai_training_common.events import JobEventIn, EventType
+
+
 def setup_logging() -> None:
     """Configure process-wide logging with an env-driven log level."""
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True
+        force=True,
     )
+
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
-import os, asyncio, json, time, logging
-import httpx
-from aiokafka import AIOKafkaConsumer
-from kubernetes import client
-from kubernetes import config as k8s_config
-from kubernetes.config.config_exception import ConfigException
-from common.ai_training_common.kafka import build_kafka_config
-from common.ai_training_common.events import JobEventIn, EventType
-
-
-KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
-KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC", "job-events")
 TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "ai-platform-training-job:latest")
 TRAINING_NAMESPACE = os.environ.get("TRAINING_NAMESPACE", "training-jobs")
 CONTROL_PLANE_URL = os.environ.get("CONTROL_PLANE_URL", "")
@@ -62,17 +55,14 @@ async def process_job_submitted(job_id, cfg):
         print("ConfigMap create error:", e, flush=True)
 
     env_vars = [
-        client.V1EnvVar(name="KAFKA_BOOTSTRAP", value=KAFKA_BOOTSTRAP),
-        client.V1EnvVar(name="KAFKA_TOPIC", value=KAFKA_TOPIC),
         client.V1EnvVar(name="JOB_CONFIG", value="/opt/job/config.json"),
         client.V1EnvVar(name="JOB_ID", value=job_id),
     ]
-    if _use_http_source():
-        env_vars.append(client.V1EnvVar(name="CONTROL_PLANE_URL", value=CONTROL_PLANE_URL))
-        if DATA_PLANE_API_TOKEN:
-            env_vars.append(client.V1EnvVar(name="DATA_PLANE_API_TOKEN", value=DATA_PLANE_API_TOKEN))
-        if DATA_PLANE_TENANT_ID:
-            env_vars.append(client.V1EnvVar(name="DATA_PLANE_TENANT_ID", value=DATA_PLANE_TENANT_ID))
+    env_vars.append(client.V1EnvVar(name="CONTROL_PLANE_URL", value=CONTROL_PLANE_URL))
+    if DATA_PLANE_API_TOKEN:
+        env_vars.append(client.V1EnvVar(name="DATA_PLANE_API_TOKEN", value=DATA_PLANE_API_TOKEN))
+    if DATA_PLANE_TENANT_ID:
+        env_vars.append(client.V1EnvVar(name="DATA_PLANE_TENANT_ID", value=DATA_PLANE_TENANT_ID))
 
     container = client.V1Container(
         name="trainer",
@@ -134,10 +124,6 @@ async def process_job_cancelled(ev):
         print(f"Deleted configmap {cm_name}", flush=True)
     except Exception as e:
         print("ConfigMap delete error:", e, flush=True)
-
-
-def _use_http_source() -> bool:
-    return bool(CONTROL_PLANE_URL)
 
 
 def _data_plane_headers() -> dict:
@@ -239,43 +225,8 @@ async def run_http_mode():
         await close_http_client()
 
 
-async def consume_forever():
-    """Continuously consume Kafka events with retry on failure."""
-    while True:
-        try:
-            await consume_once()
-        except Exception:
-            logger.exception("Kafka consumer crashed; retrying in 3s")
-            await asyncio.sleep(3)
-
-async def consume_once():
-    """Consume Kafka events until the consumer stops."""
-    kafka_config = build_kafka_config()
-    consumer = AIOKafkaConsumer(
-        KAFKA_TOPIC,
-        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-        group_id="job-launcher",
-        auto_offset_reset="earliest",
-        **kafka_config,
-    )
-    await consumer.start()
-    logger.info("Job launcher consumer started")
-    try:
-        async for msg in consumer:
-            ev = msg.value
-            if ev.get("event_type") == "JOB_SUBMITTED":
-                job_id = ev.get("job_id")
-                cfg = (ev.get("payload") or {}).get("config") or ev.get("config")
-                if job_id and cfg:
-                    await process_job_submitted(job_id, cfg)
-            elif ev.get("event_type") == "JOB_CANCELLED":
-                await process_job_cancelled(ev)
-    finally:
-        await consumer.stop()
-
-
 def main():
-    """Load Kubernetes config and start the Kafka consumer loop."""
+    """Load Kubernetes config and start polling the control-plane."""
     logger.info("Job Launcher starting... pid=%s", os.getpid())
 
     in_cluster = bool(os.getenv("KUBERNETES_SERVICE_HOST"))
@@ -298,10 +249,7 @@ def main():
             no_k8s = True
 
     logger.info("Job launcher started. Kubernetes enabled = %s", not no_k8s)
-    if _use_http_source():
-        asyncio.run(run_http_mode())
-    else:
-        asyncio.run(consume_forever())
+    asyncio.run(run_http_mode())
 
 if __name__ == "__main__":
     main()

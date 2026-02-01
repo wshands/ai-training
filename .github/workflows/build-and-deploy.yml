@@ -40,9 +40,3 @@ jobs:
         context: ./training-job
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-training-job:latest
-    - name: Build and push ui-dashboard
-      uses: docker/build-push-action@v5
-      with:
-        context: ./ui-dashboard
-        push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-ui-dashboard:latest

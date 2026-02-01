@@ -1,4 +1,3 @@
-aiokafka
 httpx
 kubernetes
 pydantic

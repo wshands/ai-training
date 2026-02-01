@@ -43,7 +43,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from kubernetes import client, config as k8s_config
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager
 import jwt
@@ -314,6 +314,24 @@ class TrainJobRequest(BaseModel):
     extra_config: dict | None = None
 
 
+class JobConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    job_id: str
+    tenant_id: str
+    user_id: str
+    model_id: str
+    dataset_id: str
+    epochs: int
+    batch_size: int
+    lr: float
+    distributed: bool
+    extra: dict = Field(default_factory=dict)
+    submitted_at: int
+    seq_start: int
+    retry_of: Optional[str] = None
+
+
 class DataPlaneTokenRequest(BaseModel):
     tenant_id: str
     token: Optional[str] = None
@@ -346,25 +364,24 @@ async def submit_training_job(
     job_name = f"train-{job_id[:8]}"
     config_map_name = f"{job_name}-config"
 
-    job_cfg = {
-        "job_id": job_id,
-        "tenant_id": tenant_id,
-        "user_id": user_id,
-        "model_id": req.model_id,
-        "dataset_id": req.dataset_id,
-        "epochs": req.epochs,
-        "batch_size": req.batch_size,
-        "lr": req.lr,
-        "distributed": req.distributed,
-        "extra": req.extra_config or {},
-        "submitted_at": int(time.time()),
-        "seq_start": 2,
-
-        #"fail_after_epoch": 5,  # for testing only!!!! remove in prod
-    }
+    job_cfg = JobConfig(
+        job_id=job_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        model_id=req.model_id,
+        dataset_id=req.dataset_id,
+        epochs=req.epochs,
+        batch_size=req.batch_size,
+        lr=req.lr,
+        distributed=req.distributed,
+        extra=req.extra_config or {},
+        submitted_at=int(time.time()),
+        seq_start=2,
+    )
+    job_cfg_dict = job_cfg.model_dump()
 
     try:
-        await persist_initial_job(job_id, job_cfg, tenant_id, user_id)
+        await persist_initial_job(job_id, job_cfg_dict, tenant_id, user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
@@ -375,7 +392,7 @@ async def submit_training_job(
         user_id=user_id,
         seq=1,
         producer="control-plane",
-        payload={"config": job_cfg},
+        payload={"config": job_cfg_dict},
     )
 
     try:
@@ -430,18 +447,17 @@ async def retry_job(
     cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
 
     new_job_id = str(uuid.uuid4())
-    job_cfg = dict(cfg_obj)
-    job_cfg.update(
-        {
-            "job_id": new_job_id,
-            "submitted_at": int(time.time()),
-            "seq_start": 2,
-            "retry_of": job_id,
-        }
+    job_cfg = JobConfig(
+        **cfg_obj,
+        job_id=new_job_id,
+        submitted_at=int(time.time()),
+        seq_start=2,
+        retry_of=job_id,
     )
+    job_cfg_dict = job_cfg.model_dump()
 
     try:
-        await persist_initial_job(new_job_id, job_cfg, tenant_id, user_id)
+        await persist_initial_job(new_job_id, job_cfg_dict, tenant_id, user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
@@ -452,7 +468,7 @@ async def retry_job(
         user_id=user_id,
         seq=1,
         producer="control-plane",
-        payload={"config": job_cfg},
+        payload={"config": job_cfg_dict},
     )
 
     try:

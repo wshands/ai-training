@@ -141,3 +141,5 @@ See `docs/data-plane-auth.md` for details.
 ## Related docs
 
 - `docs/data-plane-auth.md`
+- `docs/training-job-contract.md`
+- `docs/contracts/contracts.md`
