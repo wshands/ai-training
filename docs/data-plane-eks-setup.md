@@ -8,6 +8,11 @@ This guide helps a customer deploy the data-plane into an AWS EKS cluster.
 - kubectl + helm installed locally
 - VPC with outbound Internet (NAT) or private routing that can reach the control-plane HTTPS endpoint
 - Access to the control-plane URL, tenant id, and data-plane token
+## .1) Install eksctl on mac
+```bash
+brew tap aws/tap
+brew install aws-tap/eksctl
+```
 
 ## 1) Create an EKS cluster
 
@@ -16,7 +21,7 @@ You can use eksctl (simplest) or Terraform. Example with eksctl:
 ```bash
 eksctl create cluster \
   --name ai-data-plane \
-  --region us-west-2 \
+  --region us-east-1 \
   --nodegroup-name data-plane-ng \
   --nodes 2 \
   --nodes-min 1 \

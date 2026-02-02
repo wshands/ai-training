@@ -30,8 +30,23 @@ docker-compose down -v
 To build the (data plane) job launcher and training job in minikube:
 ```bash
 eval $(minikube docker-env)
-docker build -f data-plane/Dockerfile -t ai-platform-job-launcher:latest .
+docker build -f data-plane/launcher/Dockerfile -t ai-platform-job-launcher:latest .
 docker build -f data-plane/training-job/Dockerfile -t ai-platform-training-job:latest .
+```
+
+To build a multi-platform image for Mac or ECR:
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t 230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/job-launcher:latest \
+  -f data-plane/launcher/Dockerfile \
+  --push .
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t 230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/training-job:latest \
+  -f data-plane/training-job/Dockerfile \
+  --push .
 ```
 
 To delete old training jobs

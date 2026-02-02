@@ -8,6 +8,7 @@ import LogPanel from '../components/LogPanel';
 import Spinner from '../components/Spinner';
 import { useClerkToken } from '../hooks/useClerkToken';
 import { EventType } from '../constants/eventTypes';
+import { JobState, jobStateFromEventType } from '../constants/jobStates';
 import {
   LineChart,
   Line,
@@ -55,11 +56,7 @@ const parseHistoryEvents = (events) => {
     if (state) {
       lastStatus = state;
     } else if (t.startsWith("JOB_")) {
-      if (t === EventType.JOB_COMPLETED) lastStatus = "COMPLETED";
-      else if (t === EventType.JOB_FAILED) lastStatus = "FAILED";
-      else if (t === EventType.JOB_STARTED) lastStatus = "RUNNING";
-      else if (t === EventType.JOB_SUBMITTED) lastStatus = "SUBMITTED";
-      else lastStatus = t.replace("JOB_", "");
+      lastStatus = jobStateFromEventType(t);
     }
   }
 
@@ -306,7 +303,7 @@ const JobDetail = () => {
         <div className="flex items-center justify-between gap-4 mb-1">
           <h1 className="text-xl font-semibold">Job {jobId}</h1>
           <div className="flex items-center gap-2">
-            {['SUBMITTED', 'PENDING', 'RUNNING'].includes(job?.status) && (
+            {[JobState.SUBMITTED, JobState.PENDING, JobState.RUNNING].includes(job?.status) && (
               <button
                 type="button"
                 className="px-3 py-1.5 rounded-md bg-rose-500 text-sm font-medium hover:bg-rose-400 disabled:opacity-50"
@@ -316,7 +313,7 @@ const JobDetail = () => {
                 Cancel
               </button>
             )}
-            {job?.status === 'FAILED' && (
+            {job?.status === JobState.FAILED && (
               <button
                 type="button"
                 className="px-3 py-1.5 rounded-md bg-sky-500 text-sm font-medium hover:bg-sky-400 disabled:opacity-50"

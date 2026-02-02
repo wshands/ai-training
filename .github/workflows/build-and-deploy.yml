@@ -19,24 +19,28 @@ jobs:
     - name: Build and push control-plane
       uses: docker/build-push-action@v5
       with:
-        context: ./control-plane
+        context: .
+        file: control-plane/api/Dockerfile.prod
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-control-plane:latest
     - name: Build and push job-launcher
       uses: docker/build-push-action@v5
       with:
-        context: ./job-launcher
+        context: .
+        file: data-plane/launcher/Dockerfile
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-job-launcher:latest
     - name: Build and push event-processor
       uses: docker/build-push-action@v5
       with:
-        context: ./event-processor
+        context: .
+        file: control-plane/event-processor/Dockerfile
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-event-processor:latest
     - name: Build and push training-job
       uses: docker/build-push-action@v5
       with:
-        context: ./training-job
+        context: .
+        file: data-plane/training-job/Dockerfile
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-platform-training-job:latest

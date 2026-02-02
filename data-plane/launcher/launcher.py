@@ -12,6 +12,7 @@ from kubernetes import client
 from kubernetes import config as k8s_config
 from kubernetes.config.config_exception import ConfigException
 from common.ai_training_common.events import JobEventIn, EventType
+from common.ai_training_common.state_machine import JobState
 
 
 def setup_logging() -> None:
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "ai-platform-training-job:latest")
+#TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/training-job:latest")
 TRAINING_NAMESPACE = os.environ.get("TRAINING_NAMESPACE", "training-jobs")
 CONTROL_PLANE_URL = os.environ.get("CONTROL_PLANE_URL", "")
 DATA_PLANE_API_TOKEN = os.environ.get("DATA_PLANE_API_TOKEN", "")
@@ -67,7 +69,7 @@ async def process_job_submitted(job_id, cfg):
     container = client.V1Container(
         name="trainer",
         image=TRAINING_IMAGE,
-        image_pull_policy="Never",
+        image_pull_policy="IfNotPresent",
         volume_mounts=[client.V1VolumeMount(name="job-config", mount_path="/opt/job")],
         env=env_vars,
     )
@@ -150,7 +152,7 @@ async def close_http_client():
         http_client = None
 
 
-async def fetch_pending_jobs(limit: int = 1, status_filter: str = "SUBMITTED"):
+async def fetch_pending_jobs(limit: int = 1, status_filter: str = JobState.SUBMITTED.value):
     if http_client is None:
         raise RuntimeError("HTTP client not initialized")
     resp = await http_client.get(
@@ -206,7 +208,7 @@ async def poll_forever():
                     logger.info("Emitted JOB_PENDING for %s", job_id)
                     await process_job_submitted(job_id, cfg)
 
-            cancelled = await fetch_pending_jobs(limit=5, status_filter="CANCELLED")
+            cancelled = await fetch_pending_jobs(limit=5, status_filter=JobState.CANCELLED.value)
             for job in cancelled:
                 job_id = job.get("job_id")
                 if job_id and job_id not in cancelled_seen:

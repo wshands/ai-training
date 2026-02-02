@@ -6,6 +6,7 @@ import { WS_BASE_URL } from '../config';
 import { useClerkToken } from '../hooks/useClerkToken';
 import JobStatusBadge from '../components/JobStatusBadge';
 import Spinner from '../components/Spinner';
+import { jobStateFromEventType } from '../constants/jobStates';
 
 const Dashboard = () => {
   const pageSize = 50;
@@ -57,7 +58,7 @@ const Dashboard = () => {
     if (!jobId) return;
     const state = msg?.state;
     const eventType = (msg?.event_type || '').toUpperCase();
-    const nextStatus = state || (eventType.startsWith('JOB_') ? eventType.replace('JOB_', '') : '');
+    const nextStatus = state || jobStateFromEventType(eventType) || '';
     setJobs((prev) =>
       prev.map((job) => {
         if (job.job_id !== jobId) return job;

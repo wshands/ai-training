@@ -13,25 +13,25 @@ Big picture (one-paragraph)
   Events flow: clients -> control-plane -> Kafka -> event-processor -> DB -> Redis pubsub -> frontend WS.
 
 Key files to inspect first
-- `control-plane/app/main.py` — request handling and WS streaming (see `submit_training_job` and WS handler).
-- `control-plane/app/db.py` — persistence API: `persist_initial_job`, `fetch_jobs`, `fetch_job_events_since`.
-- `control-plane/app/kafka_bus.py` — Kafka producer init and `send_event` usage.
-- `event-processor/event_processor.py` and `state_machine.py` — consumer side, event normalization.
-- `job-launcher/launcher.py` — Kubernetes job manifests and submit logic.
-- `training-job/training_job_runner.py` — entrypoint run by the training container.
-- Root `docker-compose.yml` and `ai-platform-data-plane/docker-compose.yml` — quick local dev environment.
-- `deploy/helm/platform` and `ai-platform-data-plane/helm-data-plane` — k8s Helm manifests for production-like deploys.
+- `control-plane/api/app/main.py` — request handling and WS streaming (see `submit_training_job` and WS handler).
+- `control-plane/api/app/db.py` — persistence API: `persist_initial_job`, `fetch_jobs`, `fetch_job_events_since`.
+- `control-plane/api/app/kafka_bus.py` — Kafka producer init and `send_event` usage.
+- `control-plane/event-processor/event_processor.py` and `state_machine.py` — consumer side, event normalization.
+- `data-plane/launcher/launcher.py` — Kubernetes job manifests and submit logic.
+- `data-plane/training-job/training_job_runner.py` — entrypoint run by the training container.
+- Root `docker-compose.yml` — quick local dev environment.
+- `deploy/helm/control-plane` and `deploy/helm/data-plane` — k8s Helm manifests for production-like deploys.
 
 Project-specific conventions and patterns
 - Events are JSON objects and must include a `type` (or payload `event_type`). The control-plane expects `JOB_*` event names.
 - DB stores canonical events; payloads are sometimes strings (JSON encoded) — callers should handle `isinstance(payload, str)` like `main.py` does.
 - WebSocket streams are implemented via Redis pubsub channels named `job_events:{job_id}`.
-- Use env names from `control-plane/app/config.py` (e.g., `REDIS_URL`, `TRAINING_IMAGE`, `CUSTOMER_KUBECONFIG`).
-- FastAPI logging is configured at module import time (`setup_logging()` in `control-plane/app/main.py`).
+- Use env names from `common/ai_training_common/config.py` (e.g., `REDIS_URL`, `TRAINING_IMAGE`, `CUSTOMER_KUBECONFIG`).
+- FastAPI logging is configured at module import time (`setup_logging()` in `control-plane/api/app/main.py`).
 
 Local developer workflows
 - Start full local stack (recommended for integration work):
-  - `docker compose up` (root `docker-compose.yml`) or `docker compose -f ai-platform-data-plane/docker-compose.yml up` for data-plane only.
+  - `docker compose up` (root `docker-compose.yml`).
 - Control-plane local run (iterative edits): build the image or run inside Python venv pointing envs at local services; logs are useful: `docker compose logs -f control-plane`.
 - Frontend: `cd frontend_full && npm install && npm start` (or `cd ui-dashboard && npm install && npm run dev`).
 
@@ -41,7 +41,7 @@ Debugging tips specific to this repo
 - Check Kafka locally via composed Kafka UI (if present) or container logs for `event-processor`.
 
 Making changes / PR guidance
-- Keep changes minimal and focused. For API/DB changes update `control-plane/app/db.py` and corresponding SQL migration (if present).
+- Keep changes minimal and focused. For API/DB changes update `control-plane/api/app/db.py` and corresponding SQL migration (if present).
 - When modifying event shapes, update both producer (`control-plane` or callers) and consumer (`event-processor`) and add a short example event in tests or README.
 
 If you need clarification

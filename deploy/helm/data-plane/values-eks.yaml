@@ -1,10 +1,12 @@
 jobLauncher:
   image:
-    repository: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/job-launcher
-    tag: <IMAGE_TAG>
+    repository: 230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/job-launcher
+    tag: latest
     pullPolicy: IfNotPresent
   replicas: 1
   trainingNamespace: "training-jobs"
   controlPlaneUrl: "https://control-plane.example.com"
-  dataPlaneApiToken: "<data-plane-token>"
-  dataPlaneTenantId: "<tenant-id>"
+  #dataPlaneApiToken: "<data-plane-token>"
+  #dataPlaneTenantId: "<tenant-id>"
+  dataPlaneApiToken: "data-plane-token"
+  dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"

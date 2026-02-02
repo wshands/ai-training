@@ -107,7 +107,8 @@ def test_internal_jobs_requires_data_plane_token(client, monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
-    resp = client.get("/internal/jobs?status_filter=SUBMITTED&limit=1")
+    status = main_mod.JobState.SUBMITTED.value
+    resp = client.get(f"/internal/jobs?status_filter={status}&limit=1")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "DATA_PLANE_API_TOKEN not configured"
 
@@ -115,15 +116,16 @@ def test_internal_jobs_requires_data_plane_token(client, monkeypatch) -> None:
 def test_internal_jobs_with_data_plane_token(client, monkeypatch) -> None:
     async def fake_fetch_jobs_by_state(tenant_id: str, state: str, limit: int):
         assert tenant_id == "tenant-1"
-        assert state == "SUBMITTED"
+        assert state == main_mod.JobState.SUBMITTED.value
         assert limit == 2
         return []
 
     monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
     monkeypatch.setattr(main_mod, "DATA_PLANE_API_TOKEN", "token-123")
     monkeypatch.setattr(main_mod, "DATA_PLANE_TENANT_ID", "tenant-1")
+    status = main_mod.JobState.SUBMITTED.value
     resp = client.get(
-        "/internal/jobs?status_filter=SUBMITTED&limit=2",
+        f"/internal/jobs?status_filter={status}&limit=2",
         headers={"Authorization": "Bearer token-123"},
     )
     assert resp.status_code == 200
@@ -139,8 +141,9 @@ def test_internal_jobs_with_token_rotation_map(client, monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "DATA_PLANE_API_TOKEN", "")
     monkeypatch.setattr(main_mod, "DATA_PLANE_TENANT_ID", "")
     monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {"tenant-1": ["old-token", "new-token"]})
+    status = main_mod.JobState.SUBMITTED.value
     resp = client.get(
-        "/internal/jobs?status_filter=SUBMITTED&limit=1",
+        f"/internal/jobs?status_filter={status}&limit=1",
         headers={
             "Authorization": "Bearer new-token",
             "X-Tenant-Id": "tenant-1",

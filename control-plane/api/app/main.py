@@ -400,7 +400,7 @@ async def submit_training_job(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
 
-    return {"job_id": job_id, "status": "SUBMITTED"}
+    return {"job_id": job_id, "status": JobState.SUBMITTED.value}
 
 
 @app.post("/jobs/{job_id}/cancel")
@@ -429,7 +429,7 @@ async def cancel_job(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
 
-    return {"job_id": job_id, "status": "CANCELLED"}
+    return {"job_id": job_id, "status": JobState.CANCELLED.value}
 
 
 @app.post("/jobs/{job_id}/retry")
@@ -476,7 +476,7 @@ async def retry_job(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
 
-    return {"job_id": new_job_id, "status": "SUBMITTED"}
+    return {"job_id": new_job_id, "status": JobState.SUBMITTED.value}
 
 
 @app.get("/jobs", response_model=List[JobSummary])
@@ -500,7 +500,7 @@ async def list_jobs(
         summaries.append(
             JobSummary(
                 job_id=r["job_id"],
-                status=(r["status"] or "SUBMITTED"),  # should never be null now
+                status=(r["status"] or JobState.SUBMITTED.value),  # should never be null now
                 created_at=r["created_at"],
                 submitted_at=r.get("submitted_at"),
                 updated_at=r.get("updated_at"),
@@ -527,7 +527,7 @@ async def get_job(
     cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
     return JobSummary(
         job_id=row["job_id"],
-        status=(row["status"] or "SUBMITTED"),
+        status=(row["status"] or JobState.SUBMITTED.value),
         created_at=row["created_at"],
         submitted_at=row.get("submitted_at"),
         updated_at=row.get("updated_at"),
@@ -539,7 +539,7 @@ async def get_job(
 
 @app.get("/internal/jobs", response_model=List[JobSummary])
 async def list_pending_jobs(
-    status_filter: str = "SUBMITTED",
+    status_filter: str = JobState.SUBMITTED.value,
     limit: int = DEFAULT_JOBS_LIMIT,
     identity: DataPlaneContext = Depends(get_data_plane_identity),
 ):
@@ -565,7 +565,7 @@ async def list_pending_jobs(
         summaries.append(
             JobSummary(
                 job_id=r["job_id"],
-                status=(r["status"] or "SUBMITTED"),
+                status=(r["status"] or JobState.SUBMITTED.value),
                 created_at=r["created_at"],
                 submitted_at=r.get("submitted_at"),
                 updated_at=r.get("updated_at"),

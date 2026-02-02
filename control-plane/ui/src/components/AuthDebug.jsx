@@ -2,9 +2,9 @@ import React from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
 
 const AuthDebug = () => {
-  if (process.env.NODE_ENV === 'production') return null;
   const { isLoaded, isSignedIn, sessionId, orgId } = useAuth();
   const { user } = useUser();
+  if (process.env.NODE_ENV === 'production') return null;
 
   return (
     <div className="mt-6 text-xs text-slate-400 border border-slate-800 rounded p-3">
