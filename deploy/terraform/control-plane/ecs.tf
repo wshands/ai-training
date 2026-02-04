@@ -5,6 +5,8 @@ locals {
   kafka_sasl_mechanism_value    = var.kafka_sasl_mechanism != "" ? var.kafka_sasl_mechanism : "AWS_MSK_IAM"
   postgres_dsn_secret_arn_value = var.postgres_dsn_secret_arn != "" ? var.postgres_dsn_secret_arn : aws_secretsmanager_secret.postgres_dsn.arn
   msk_cluster_arn_value         = var.msk_cluster_arn != "" ? var.msk_cluster_arn : aws_msk_serverless_cluster.this.arn
+  msk_topic_arn                 = "${replace(local.msk_cluster_arn_value, ":cluster/", ":topic/")}/*"
+  msk_group_arn                 = "${replace(local.msk_cluster_arn_value, ":cluster/", ":group/")}/*"
 
   common_env = merge(
     {
@@ -50,6 +52,8 @@ locals {
     CLERK_ISSUER         = var.clerk_issuer
     CLERK_AUDIENCE       = var.clerk_audience
     CLERK_JWT_ALGORITHM  = var.clerk_jwt_algorithm
+    DATA_PLANE_API_TOKEN = var.data_plane_api_token
+    DATA_PLANE_TENANT_ID = var.data_plane_tenant_id
   })
 }
 
@@ -89,7 +93,6 @@ resource "aws_iam_role_policy_attachment" "task_execution" {
 }
 
 data "aws_iam_policy_document" "secrets_access" {
-  count = length(local.secret_arns) > 0 ? 1 : 0
   statement {
     effect    = "Allow"
     actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
@@ -98,15 +101,13 @@ data "aws_iam_policy_document" "secrets_access" {
 }
 
 resource "aws_iam_policy" "secrets_access" {
-  count  = length(local.secret_arns) > 0 ? 1 : 0
   name   = "ai-platform-secrets-access"
-  policy = data.aws_iam_policy_document.secrets_access[0].json
+  policy = data.aws_iam_policy_document.secrets_access.json
 }
 
 resource "aws_iam_role_policy_attachment" "task_execution_secrets_access" {
-  count      = length(local.secret_arns) > 0 ? 1 : 0
   role       = aws_iam_role.task_execution.name
-  policy_arn = aws_iam_policy.secrets_access[0].arn
+  policy_arn = aws_iam_policy.secrets_access.arn
 }
 
 resource "aws_iam_role" "task" {
@@ -115,36 +116,45 @@ resource "aws_iam_role" "task" {
 }
 
 data "aws_iam_policy_document" "msk_iam" {
-  count = local.msk_cluster_arn_value != "" ? 1 : 0
   statement {
     effect = "Allow"
     actions = [
       "kafka-cluster:Connect",
       "kafka-cluster:DescribeCluster",
       "kafka-cluster:DescribeClusterV2",
+    ]
+    resources = [local.msk_cluster_arn_value]
+  }
+
+  statement {
+    effect = "Allow"
+    actions = [
+      "kafka-cluster:CreateTopic",
       "kafka-cluster:DescribeTopic",
-      "kafka-cluster:DescribeGroup",
       "kafka-cluster:ReadData",
       "kafka-cluster:WriteData",
+    ]
+    resources = [local.msk_topic_arn]
+  }
+
+  statement {
+    effect = "Allow"
+    actions = [
+      "kafka-cluster:DescribeGroup",
       "kafka-cluster:AlterGroup",
     ]
-    resources = [
-      local.msk_cluster_arn_value,
-      "${local.msk_cluster_arn_value}/*",
-    ]
+    resources = [local.msk_group_arn]
   }
 }
 
 resource "aws_iam_policy" "msk_iam" {
-  count  = local.msk_cluster_arn_value != "" ? 1 : 0
   name   = "ai-platform-msk-iam"
-  policy = data.aws_iam_policy_document.msk_iam[0].json
+  policy = data.aws_iam_policy_document.msk_iam.json
 }
 
 resource "aws_iam_role_policy_attachment" "task_msk_iam" {
-  count      = local.msk_cluster_arn_value != "" ? 1 : 0
   role       = aws_iam_role.task.name
-  policy_arn = aws_iam_policy.msk_iam[0].arn
+  policy_arn = aws_iam_policy.msk_iam.arn
 }
 
 resource "aws_ecs_task_definition" "control_plane" {

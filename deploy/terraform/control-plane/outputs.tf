@@ -32,3 +32,28 @@ output "postgres_dsn_secret_arn" {
   description = "Secrets Manager ARN for POSTGRES_DSN"
   value       = aws_secretsmanager_secret.postgres_dsn.arn
 }
+
+output "ui_bucket_name" {
+  description = "S3 bucket name for the UI"
+  value       = aws_s3_bucket.ui.bucket
+}
+
+output "ui_cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for the UI"
+  value       = aws_cloudfront_distribution.ui.id
+}
+
+output "ui_cloudfront_domain_name" {
+  description = "CloudFront domain name for the UI"
+  value       = aws_cloudfront_distribution.ui.domain_name
+}
+
+output "ui_url" {
+  description = "UI URL (custom domain if configured, otherwise CloudFront domain)"
+  value       = local.ui_has_domain ? "https://${local.ui_domain_names[0]}" : "https://${aws_cloudfront_distribution.ui.domain_name}"
+}
+
+output "api_url" {
+  description = "API URL (custom domain if configured, otherwise ALB DNS)"
+  value       = local.api_has_domain ? "https://${var.api_domain_name}" : "http://${aws_lb.control_plane.dns_name}"
+}

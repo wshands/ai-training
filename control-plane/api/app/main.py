@@ -346,6 +346,17 @@ def load_k8s_clients():
 redis_client: redis.Redis | None = None
 
 
+@app.get("/")
+async def root():
+    """Simple landing endpoint."""
+    return {"service": "control-plane", "status": "ok"}
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint for load balancers."""
+    return {"status": "ok"}
+
 
 @app.get("/auth/me", response_model=AuthContext)
 async def me(identity: AuthContext = Depends(get_current_identity)):

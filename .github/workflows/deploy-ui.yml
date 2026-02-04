@@ -1,0 +1,47 @@
+name: Deploy UI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "control-plane/ui/**"
+      - ".github/workflows/deploy-ui.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      UI_BUCKET: ${{ vars.UI_BUCKET }}
+      UI_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.UI_CLOUDFRONT_DISTRIBUTION_ID }}
+      REACT_APP_API_BASE_URL: ${{ vars.REACT_APP_API_BASE_URL }}
+      REACT_APP_WS_BASE_URL: ${{ vars.REACT_APP_WS_BASE_URL }}
+      REACT_APP_CLERK_PUBLISHABLE_KEY: ${{ vars.REACT_APP_CLERK_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: control-plane/ui/package-lock.json
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_UI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Install dependencies
+        working-directory: control-plane/ui
+        run: npm ci
+      - name: Build UI
+        working-directory: control-plane/ui
+        run: npm run build
+      - name: Sync to S3
+        if: env.UI_BUCKET != ''
+        run: aws s3 sync control-plane/ui/build "s3://${UI_BUCKET}" --delete
+      - name: Invalidate CloudFront cache
+        if: env.UI_CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: aws cloudfront create-invalidation --distribution-id "${UI_CLOUDFRONT_DISTRIBUTION_ID}" --paths "/*"

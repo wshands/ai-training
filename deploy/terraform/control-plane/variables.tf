@@ -4,6 +4,12 @@ variable "region" {
   default     = "us-west-2"
 }
 
+variable "aws_profile" {
+  type        = string
+  description = "AWS Identity Center SSO profile to use"
+  default     = ""
+}
+
 variable "control_plane_image" {
   type        = string
   description = "ECR image for the control-plane API"
@@ -145,6 +151,19 @@ variable "kafka_ssl_key_file" {
   default     = ""
 }
 
+variable "data_plane_api_token" {
+  type        = string
+  description = "Shared token for data-plane authentication"
+  sensitive   = true
+  default     = ""
+}
+
+variable "data_plane_tenant_id" {
+  type        = string
+  description = "Optional tenant ID to restrict data-plane access"
+  default     = ""
+}
+
 variable "alb_certificate_arn" {
   type        = string
   description = "ACM certificate ARN for HTTPS listener (optional)"
@@ -166,7 +185,7 @@ variable "msk_client_port" {
 variable "postgres_engine_version" {
   type        = string
   description = "Postgres engine version"
-  default     = "15.4"
+  default     = "18.1"
 }
 
 variable "postgres_instance_class" {
@@ -191,6 +210,48 @@ variable "postgres_username" {
   type        = string
   description = "Postgres username"
   default     = "controlplane"
+}
+
+variable "ui_bucket_name" {
+  type        = string
+  description = "S3 bucket name for the UI (optional, auto-generated if empty)"
+  default     = ""
+}
+
+variable "ui_domain_name" {
+  type        = string
+  description = "Custom domain name for the UI (e.g. ui.example.com)"
+  default     = ""
+}
+
+variable "ui_domain_names" {
+  type        = list(string)
+  description = "Custom domain names for the UI (e.g. [\"example.com\", \"www.example.com\"])"
+  default     = []
+}
+
+variable "ui_hosted_zone_id" {
+  type        = string
+  description = "Route53 hosted zone ID for ui_domain_name"
+  default     = ""
+}
+
+variable "ui_cloudfront_price_class" {
+  type        = string
+  description = "CloudFront price class for the UI distribution"
+  default     = "PriceClass_100"
+}
+
+variable "api_domain_name" {
+  type        = string
+  description = "Custom domain name for the API (e.g. api.example.com)"
+  default     = ""
+}
+
+variable "api_hosted_zone_id" {
+  type        = string
+  description = "Route53 hosted zone ID for api_domain_name"
+  default     = ""
 }
 
 variable "postgres_multi_az" {

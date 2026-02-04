@@ -41,10 +41,13 @@ import asyncpg
 from asyncpg.exceptions import UniqueViolationError
 import redis.asyncio as redis
 from aiokafka import AIOKafkaConsumer
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import (
     GroupCoordinatorNotAvailableError,
     KafkaConnectionError,
     NoBrokersAvailable,
+    TopicAlreadyExistsError,
+    TopicAuthorizationFailedError,
     UnknownTopicOrPartitionError,
 )
 
@@ -67,6 +70,9 @@ POSTGRES_DSN = os.environ.get(
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 EVENT_RETENTION_DAYS = int(os.environ.get("EVENT_RETENTION_DAYS", "30"))
 EVENT_PRUNE_INTERVAL_SECONDS = int(os.environ.get("EVENT_PRUNE_INTERVAL_SECONDS", "3600"))
+KAFKA_AUTO_CREATE_TOPICS = os.environ.get("KAFKA_AUTO_CREATE_TOPICS", "true").lower() in ("1", "true", "yes")
+KAFKA_TOPIC_PARTITIONS = int(os.environ.get("KAFKA_TOPIC_PARTITIONS", "3"))
+KAFKA_TOPIC_REPLICATION_FACTOR = int(os.environ.get("KAFKA_TOPIC_REPLICATION_FACTOR", "2"))
 
 MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
 
@@ -392,15 +398,15 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
 
 # Retry logic for starting Kafka consumer
 # Make the consumer resilient anyway (retry start, and handle transient errors
-async def start_consumer_with_retry(consumer, tries: int = 60) -> None:
+async def start_consumer_with_retry(consumer, kafka_config: Dict[str, Any], tries: int = 60) -> None:
     """Start a Kafka consumer with retry/backoff for transient errors."""
     delay = 0.5
+    create_attempted = False
     for i in range(tries):
         try:
             await consumer.start()
             return
         except (
-            UnknownTopicOrPartitionError,
             GroupCoordinatorNotAvailableError,
             KafkaConnectionError,
             NoBrokersAvailable,
@@ -410,7 +416,41 @@ async def start_consumer_with_retry(consumer, tries: int = 60) -> None:
             print(f"Kafka not ready ({type(e).__name__}): retrying in {delay:.2f}s", flush=True)
             await asyncio.sleep(delay + jitter)
             delay = min(delay * 1.3, 5.0)
+        except UnknownTopicOrPartitionError:
+            if KAFKA_AUTO_CREATE_TOPICS and not create_attempted:
+                create_attempted = True
+                if await ensure_topic(kafka_config):
+                    continue
+            jitter = random.uniform(0, 0.25)
+            print("Kafka topic missing: retrying after create attempt", flush=True)
+            await asyncio.sleep(delay + jitter)
+            delay = min(delay * 1.3, 5.0)
     raise RuntimeError("Kafka never became ready (topic/coordinator) after retries")
+
+
+async def ensure_topic(kafka_config: Dict[str, Any]) -> bool:
+    """Ensure the Kafka topic exists; returns True if it exists/created."""
+    admin = AIOKafkaAdminClient(**kafka_config)
+    try:
+        await admin.start()
+        topic = NewTopic(
+            name=IN_TOPIC,
+            num_partitions=KAFKA_TOPIC_PARTITIONS,
+            replication_factor=KAFKA_TOPIC_REPLICATION_FACTOR,
+        )
+        await admin.create_topics([topic])
+        logger.info("Created Kafka topic %s", IN_TOPIC)
+        return True
+    except TopicAlreadyExistsError:
+        return True
+    except TopicAuthorizationFailedError:
+        logger.error("Not authorized to create Kafka topic %s", IN_TOPIC)
+        return False
+    except Exception:
+        logger.exception("Failed to create Kafka topic %s", IN_TOPIC)
+        return False
+    finally:
+        await admin.close()
 
 
 async def publish_ws_event(r: redis.Redis, out: JobEventOut) -> None:
@@ -455,6 +495,8 @@ async def main() -> None:
     asyncio.create_task(prune_old_events_loop(POSTGRES_DSN))
 
     kafka_config = build_kafka_config()
+    if KAFKA_AUTO_CREATE_TOPICS:
+        await ensure_topic(kafka_config)
     consumer = AIOKafkaConsumer(
         IN_TOPIC,
         group_id="event-processor",
@@ -465,7 +507,7 @@ async def main() -> None:
         **kafka_config,
     )
 
-    await start_consumer_with_retry(consumer)
+    await start_consumer_with_retry(consumer, kafka_config)
     try:
         async for msg in consumer:
             try:

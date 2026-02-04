@@ -6,5 +6,7 @@ COPY common /app/common
 COPY control-plane/api /app/control-plane
 
 RUN pip install --no-cache-dir -r /app/control-plane/requirements.txt
+ENV PYTHONPATH=/app/control-plane:/app
+WORKDIR /app/control-plane
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

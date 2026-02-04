@@ -1,5 +1,9 @@
 resource "aws_secretsmanager_secret" "postgres_dsn" {
   name = "ai-platform/postgres-dsn"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "postgres_dsn" {

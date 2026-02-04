@@ -21,7 +21,7 @@ You can use eksctl (simplest) or Terraform. Example with eksctl:
 ```bash
 eksctl create cluster \
   --name ai-data-plane \
-  --region us-east-1 \
+  --region us-west-2 \
   --nodegroup-name data-plane-ng \
   --nodes 2 \
   --nodes-min 1 \

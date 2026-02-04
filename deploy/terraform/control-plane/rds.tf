@@ -27,7 +27,7 @@ resource "aws_db_subnet_group" "postgres" {
 
 resource "random_password" "postgres" {
   length  = 24
-  special = true
+  special = false
 }
 
 resource "aws_db_instance" "postgres" {

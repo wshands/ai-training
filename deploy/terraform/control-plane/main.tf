@@ -14,7 +14,16 @@ terraform {
 
 provider "aws" {
   region = var.region
+  profile = var.aws_profile
 }
+
+provider "aws" {
+  alias   = "us_east_1"
+  region  = "us-east-1"
+  profile = var.aws_profile
+}
+
+data "aws_availability_zones" "available" {}
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -23,7 +32,7 @@ module "vpc" {
   name = "ai-platform-vpc"
   cidr = "10.0.0.0/16"
 
-  azs             = ["${var.region}a", "${var.region}b"]
+  azs             = slice(data.aws_availability_zones.available.names, 0, 2)
   public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnets = ["10.0.11.0/24", "10.0.12.0/24"]
 
@@ -31,4 +40,14 @@ module "vpc" {
   single_nat_gateway   = true
   enable_dns_hostnames = true
   enable_dns_support   = true
+}
+
+terraform {
+  backend "s3" {
+    bucket        = "ai-training-saas"
+    key           = "control-plane/terraform.tfstate"
+    region        = "us-west-2"
+    use_lockfile  = true
+    encrypt       = true
+  }
 }

@@ -7,7 +7,7 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - control-plane/ui/ – React UI for jobs
 - data-plane/ – Job launcher + training job runtime for customer clusters
 - deploy/helm/ – Helm charts to deploy platform components
-- infra/aws/ – Terraform skeleton for AWS infra
+- deploy/terraform/control-plane/ – Terraform skeleton for AWS infra
 - docker-compose.yml – Local dev stack (Kafka, Postgres, services)
 - .github/workflows/ – CI workflow to build/push Docker images
 
@@ -27,12 +27,59 @@ To bring down the local services:
 docker-compose down -v
 ```
 
+To build the control plane images:
+```bash
+# 1) Set vars
+export REGION=us-west-2
+export ACCOUNT_ID=230407893272
+export ECR_BASE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+# 2) Login to ECR
+aws ecr get-login-password --region "$REGION" | \
+  docker login --username AWS --password-stdin "$ECR_BASE"
+
+# 3) Create repos if they don't exist
+aws ecr describe-repositories --region "$REGION" \
+  --repository-names ai-training-control-plane ai-training-event-processor >/dev/null 2>&1 || \
+aws ecr create-repository --region "$REGION" --repository-name ai-training/control-plane
+
+aws ecr describe-repositories --region "$REGION" \
+  --repository-names ai-training-event-processor >/dev/null 2>&1 || \
+aws ecr create-repository --region "$REGION" --repository-name ai-training/event-processor
+```
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t "$ECR_BASE/ai-training/event-processor:latest" \
+  -f control-plane/event-processor/Dockerfile --push .
+```
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 \       
+  -t "$ECR_BASE/ai-training/control-plane:latest" \  
+  -f control-plane/api/Dockerfile.prod --push .
+```
+
+To check the terraform stack (AWS services for control plane):
+```bash
+aws ecs describe-services \
+  --region us-west-2 \
+  --cluster ai-platform-control-plane \
+  --services control-plane
+```
+
+Kafka/MSK auth note (IAM / serverless):
+- Set `KAFKA_SECURITY_PROTOCOL=SASL_SSL` and `KAFKA_SASL_MECHANISM=AWS_MSK_IAM`.
+- Ensure the task role has MSK permissions and `AWS_REGION` or `AWS_DEFAULT_REGION` is set (used to sign tokens).
+- If using SCRAM instead, set `KAFKA_SASL_MECHANISM=SCRAM-SHA-512` plus `KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD`.
+
 To build the (data plane) job launcher and training job in minikube:
 ```bash
 eval $(minikube docker-env)
 docker build -f data-plane/launcher/Dockerfile -t ai-platform-job-launcher:latest .
 docker build -f data-plane/training-job/Dockerfile -t ai-platform-training-job:latest .
 ```
+
 
 To build a multi-platform image for Mac or ECR:
 ```bash
@@ -143,4 +190,33 @@ To test:
 ```bash
  pip install -r requirements-dev.txt
  pytest
+```
+
+
+To login using SSO:
+```bash
+aws sso login --profile AdministratorAccess-230407893272
+```
+
+To login to ECR so you can push images to ECR:
+```bash
+aws ecr get-login-password --region us-west-2 --profile AdministratorAccess-230407893272 \
+  | docker login --username AWS --password-stdin 230407893272.dkr.ecr.us-west-2.amazonaws.com
+```
+
+
+To load UI into AWS S3 bucket for CloudFront:
+```bash
+cd control-plane/ui
+rm -rf node_modules/.cache node_modules
+npm ci
+npm run build
+aws s3 sync build/ s3://ai-training-ui-47c2098c --delete
+aws cloudfront create-invalidation --distribution-id E2B3IF0DO03LIO --paths "/*"
+```
+
+To import the existing postgres dsn secret so Terraform apply will work:
+```bash
+terraform import aws_secretsmanager_secret.postgres_dsn ai-platform/postgres-dsn
+terraform apply
 ```

@@ -2,6 +2,7 @@ debugpy
 fastapi
 uvicorn[standard]
 aiokafka
+aws-msk-iam-sasl-signer-python
 asyncpg
 kubernetes
 redis[asyncio]
