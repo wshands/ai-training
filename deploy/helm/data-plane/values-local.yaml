@@ -5,6 +5,7 @@ jobLauncher:
     pullPolicy: Never
   replicas: 1
   trainingNamespace: "training-jobs"
-  controlPlaneUrl: "http://host.docker.internal:8000"
+  #controlPlaneUrl: "http://host.docker.internal:8000"
+  controlPlaneUrl: "https://api.aitrainops.com"
   dataPlaneApiToken: "local-dev-token"
   dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"

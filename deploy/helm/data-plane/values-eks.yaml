@@ -5,7 +5,7 @@ jobLauncher:
     pullPolicy: IfNotPresent
   replicas: 1
   trainingNamespace: "training-jobs"
-  controlPlaneUrl: "https://control-plane.example.com"
+  controlPlaneUrl: ""https://api.aitrainops.com""
   #dataPlaneApiToken: "<data-plane-token>"
   #dataPlaneTenantId: "<tenant-id>"
   dataPlaneApiToken: "data-plane-token"

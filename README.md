@@ -215,8 +215,40 @@ aws s3 sync build/ s3://ai-training-ui-47c2098c --delete
 aws cloudfront create-invalidation --distribution-id E2B3IF0DO03LIO --paths "/*"
 ```
 
+To remove the existing postgres dsn secret so Terraform destroy will work:
+```bash
+terraform state rm aws_secretsmanager_secret.postgres_dsn
+terraform destroy
+```
+
 To import the existing postgres dsn secret so Terraform apply will work:
 ```bash
 terraform import aws_secretsmanager_secret.postgres_dsn ai-platform/postgres-dsn
 terraform apply
+```
+
+To delete the UI bucket so Terraform destroy can run:
+```bash
+BUCKET=ai-training-ui-47c2098c
+
+# delete all object versions
+aws s3api list-object-versions \
+  --bucket "$BUCKET" \
+  --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+  --output json > /tmp/versions.json
+aws s3api delete-objects --bucket "$BUCKET" --delete file:///tmp/versions.json
+
+# delete all delete markers
+aws s3api list-object-versions \
+  --bucket "$BUCKET" \
+  --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
+  --output json > /tmp/delete-markers.json
+aws s3api delete-objects --bucket "$BUCKET" --delete file:///tmp/delete-markers.json
+```
+
+To deploy the UI to AWS CloudFront using Terraform outputs:
+```bash
+cd control-plane/ui
+aws sso login --profile AdministratorAccess-230407893272
+AWS_PROFILE=AdministratorAccess-230407893272 npm run deploy:terraform
 ```
