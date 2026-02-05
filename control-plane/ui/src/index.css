@@ -1,7 +1,17 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
   @apply bg-slate-950 text-slate-100;
+}
+
+.landing {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.landing-serif {
+  font-family: "Fraunces", "Times New Roman", serif;
 }

@@ -12,6 +12,7 @@ import Register from './pages/Register';
 import OrgSelect from './pages/OrgSelect';
 import { setTokenGetter } from './auth';
 import AuthDebug from './components/AuthDebug';
+import Landing from './pages/Landing';
 
 const AuthTokenBridge = () => {
   const { getToken } = useAuth();
@@ -24,11 +25,11 @@ const AuthTokenBridge = () => {
 const SignedOutOnly = ({ children }) => {
   const { isLoaded, isSignedIn } = useAuth();
   if (!isLoaded) return null;
-  if (isSignedIn) return <Navigate to="/" replace />;
+  if (isSignedIn) return <Navigate to="/app" replace />;
   return children;
 };
 
-const AppRoutes = () => (
+const AppShell = () => (
   <div className="min-h-screen flex flex-col">
     <Navbar />
     <main className="flex-1">
@@ -59,7 +60,7 @@ const AppRoutes = () => (
             }
           />
           <Route
-            path="/"
+            path="/app"
             element={
               <RequireAuth>
                 <Dashboard />
@@ -87,6 +88,13 @@ const AppRoutes = () => (
       </div>
     </main>
   </div>
+);
+
+const AppRoutes = () => (
+  <Routes>
+    <Route path="/" element={<Landing />} />
+    <Route path="/*" element={<AppShell />} />
+  </Routes>
 );
 
 const App = () => {
