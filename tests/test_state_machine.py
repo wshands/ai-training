@@ -9,6 +9,8 @@ def test_apply_event_basic_transitions() -> None:
     assert apply_event(JobState.PENDING, "JOB_SUBMITTED") == JobState.PENDING
     assert apply_event(JobState.PENDING, "JOB_STARTED") == JobState.RUNNING
     assert apply_event(JobState.RUNNING, "JOB_FAILED") == JobState.FAILED
+    assert apply_event(JobState.RETRYING, "JOB_PENDING") == JobState.PENDING
+    assert apply_event(JobState.RETRYING, "JOB_STARTED") == JobState.RUNNING
 
 
 def test_apply_event_sticky_terminal_states() -> None:

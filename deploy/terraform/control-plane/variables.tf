@@ -96,6 +96,13 @@ variable "clerk_jwt_algorithm" {
   default     = "RS256"
 }
 
+variable "control_plane_admin_token" {
+  type        = string
+  description = "Admin token for control-plane internal admin endpoints"
+  sensitive   = true
+  default     = ""
+}
+
 variable "kafka_security_protocol" {
   type        = string
   description = "Kafka security protocol (e.g. SASL_SSL)"
@@ -148,13 +155,6 @@ variable "kafka_ssl_cert_file" {
 variable "kafka_ssl_key_file" {
   type        = string
   description = "Path to Kafka SSL key file in the task"
-  default     = ""
-}
-
-variable "data_plane_api_token" {
-  type        = string
-  description = "Shared token for data-plane authentication"
-  sensitive   = true
   default     = ""
 }
 

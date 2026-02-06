@@ -72,6 +72,7 @@ const JobDetail = () => {
   const [err, setErr] = useState('');
   const [retryErr, setRetryErr] = useState('');
   const [retrying, setRetrying] = useState(false);
+  const [retryNotice, setRetryNotice] = useState('');
   const [logs, setLogs] = useState([]);
   const [metrics, setMetrics] = useState([]);
   const [lastError, setLastError] = useState(null);
@@ -250,11 +251,13 @@ const JobDetail = () => {
 
   const handleRetry = async () => {
     setRetryErr('');
+    setRetryNotice('');
     setRetrying(true);
     try {
       const res = await api.post(`/jobs/${jobId}/retry`);
-      const newJobId = res?.data?.job_id;
+      const newJobId = res?.data?.job_id || res?.data?.jobId;
       if (newJobId) {
+        setRetryNotice('Retry started — redirected to the new job.');
         navigate(`/jobs/${newJobId}`);
       } else {
         setRetryErr('Retry request succeeded but no job id was returned.');
@@ -303,7 +306,7 @@ const JobDetail = () => {
         <div className="flex items-center justify-between gap-4 mb-1">
           <h1 className="text-xl font-semibold">Job {jobId}</h1>
           <div className="flex items-center gap-2">
-            {[JobState.SUBMITTED, JobState.PENDING, JobState.RUNNING].includes(job?.status) && (
+            {[JobState.SUBMITTED, JobState.PENDING, JobState.RETRYING, JobState.RUNNING].includes(job?.status) && (
               <button
                 type="button"
                 className="px-3 py-1.5 rounded-md bg-rose-500 text-sm font-medium hover:bg-rose-400 disabled:opacity-50"
@@ -338,6 +341,11 @@ const JobDetail = () => {
       {retryErr && (
         <div className="text-sm text-rose-300 bg-rose-950/40 border border-rose-800 rounded p-3">
           Request failed: {retryErr}
+        </div>
+      )}
+      {retryNotice && (
+        <div className="text-sm text-emerald-300 bg-emerald-950/40 border border-emerald-800 rounded p-3">
+          {retryNotice}
         </div>
       )}
 

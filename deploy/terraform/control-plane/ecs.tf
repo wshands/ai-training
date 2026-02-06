@@ -52,7 +52,7 @@ locals {
     CLERK_ISSUER         = var.clerk_issuer
     CLERK_AUDIENCE       = var.clerk_audience
     CLERK_JWT_ALGORITHM  = var.clerk_jwt_algorithm
-    DATA_PLANE_API_TOKEN = var.data_plane_api_token
+    CONTROL_PLANE_ADMIN_TOKEN = var.control_plane_admin_token
     DATA_PLANE_TENANT_ID = var.data_plane_tenant_id
   })
 }

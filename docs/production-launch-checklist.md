@@ -14,7 +14,7 @@ AWS and the data-plane in customer Kubernetes clusters.
 - [ ] HTTPS endpoint in place (ALB + certificate)
 - [ ] `CLERK_JWKS_URL`, `CLERK_ISSUER`, `CLERK_AUDIENCE` configured
 - [ ] `CONTROL_PLANE_ADMIN_TOKEN` set
-- [ ] `DATA_PLANE_API_TOKENS` set (per tenant) or `DATA_PLANE_API_TOKEN` for single-tenant MVP
+- [ ] Data-plane tokens minted via admin API (DB-backed)
 - [ ] `DATA_PLANE_LOG_POLLS=false` in production
 - [ ] CloudWatch log groups created and retention set
 

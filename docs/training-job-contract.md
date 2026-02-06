@@ -36,7 +36,7 @@ Required:
 - `JOB_ID=<job_id>`
 - `JOB_CONFIG=/opt/job/config.json`
 - `CONTROL_PLANE_URL=<https://control-plane-host>`
-- `DATA_PLANE_API_TOKEN=<token>`
+- `DATA_PLANE_API_TOKEN=<token>` (minted via admin API; stored hashed in DB)
 - `DATA_PLANE_TENANT_ID=<tenant_id>`
 
 Optional (if you need AWS or external credentials):

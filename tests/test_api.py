@@ -109,8 +109,8 @@ def test_internal_jobs_requires_data_plane_token(client, monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
     status = main_mod.JobState.SUBMITTED.value
     resp = client.get(f"/internal/jobs?status_filter={status}&limit=1")
-    assert resp.status_code == 500
-    assert resp.json()["detail"] == "DATA_PLANE_API_TOKEN not configured"
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Missing data-plane token"
 
 
 def test_internal_jobs_with_data_plane_token(client, monkeypatch) -> None:
@@ -121,8 +121,13 @@ def test_internal_jobs_with_data_plane_token(client, monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
-    monkeypatch.setattr(main_mod, "DATA_PLANE_API_TOKEN", "token-123")
     monkeypatch.setattr(main_mod, "DATA_PLANE_TENANT_ID", "tenant-1")
+    async def fake_fetch_token(tenant_id: str, token_hash: str):
+        return {"id": "token-1"}
+    async def fake_mark_used(token_id: str) -> None:
+        assert token_id == "token-1"
+    monkeypatch.setattr(main_mod, "fetch_data_plane_token", fake_fetch_token)
+    monkeypatch.setattr(main_mod, "mark_data_plane_token_used", fake_mark_used)
     status = main_mod.JobState.SUBMITTED.value
     resp = client.get(
         f"/internal/jobs?status_filter={status}&limit=2",
@@ -132,32 +137,53 @@ def test_internal_jobs_with_data_plane_token(client, monkeypatch) -> None:
     assert resp.json() == []
 
 
-def test_internal_jobs_with_token_rotation_map(client, monkeypatch) -> None:
+def test_internal_jobs_rejects_invalid_db_token(client, monkeypatch) -> None:
     async def fake_fetch_jobs_by_state(tenant_id: str, state: str, limit: int):
         assert tenant_id == "tenant-1"
         return []
 
     monkeypatch.setattr(main_mod, "fetch_jobs_by_state", fake_fetch_jobs_by_state)
-    monkeypatch.setattr(main_mod, "DATA_PLANE_API_TOKEN", "")
     monkeypatch.setattr(main_mod, "DATA_PLANE_TENANT_ID", "")
-    monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {"tenant-1": ["old-token", "new-token"]})
+    async def fake_fetch_token(tenant_id: str, token_hash: str):
+        return None
+    monkeypatch.setattr(main_mod, "fetch_data_plane_token", fake_fetch_token)
     status = main_mod.JobState.SUBMITTED.value
     resp = client.get(
         f"/internal/jobs?status_filter={status}&limit=1",
         headers={
-            "Authorization": "Bearer new-token",
+            "Authorization": "Bearer bad-token",
             "X-Tenant-Id": "tenant-1",
             "X-Agent-Id": "agent-123",
         },
     )
-    assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid data-plane token"
 
 
 def test_admin_mint_and_list_tokens(client, monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "CONTROL_PLANE_ADMIN_TOKEN", "admin-token")
-    monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {})
-    monkeypatch.setattr(main_mod, "redis_client", None)
+    async def fake_insert(tenant_id: str, token_prefix: str, token_hash: str):
+        return {
+            "id": "token-1",
+            "tenant_id": tenant_id,
+            "token_prefix": token_prefix,
+            "created_at": None,
+            "last_used_at": None,
+            "revoked_at": None,
+        }
+    async def fake_list(tenant_id: str | None = None):
+        return [
+            {
+                "id": "token-1",
+                "tenant_id": "tenant-1",
+                "token_prefix": "abc12345",
+                "created_at": None,
+                "last_used_at": None,
+                "revoked_at": None,
+            }
+        ]
+    monkeypatch.setattr(main_mod, "insert_data_plane_token", fake_insert)
+    monkeypatch.setattr(main_mod, "list_data_plane_tokens_db", fake_list)
 
     resp = client.post(
         "/internal/admin/data-plane-tokens",
@@ -168,7 +194,8 @@ def test_admin_mint_and_list_tokens(client, monkeypatch) -> None:
     data = resp.json()
     assert data["tenant_id"] == "tenant-1"
     assert data["token"]
-    assert data["token"] in data["tokens"]
+    assert data["token_prefix"]
+    assert data["token_id"] == "token-1"
 
     resp = client.get(
         "/internal/admin/data-plane-tokens?tenant_id=tenant-1",
@@ -177,13 +204,16 @@ def test_admin_mint_and_list_tokens(client, monkeypatch) -> None:
     assert resp.status_code == 200
     listed = resp.json()
     assert "tenant-1" in listed
-    assert data["token"] in listed["tenant-1"]
+    assert listed["tenant-1"][0]["token_prefix"] == "abc12345"
 
 
 def test_admin_revoke_token(client, monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "CONTROL_PLANE_ADMIN_TOKEN", "admin-token")
-    monkeypatch.setattr(main_mod, "DATA_PLANE_TOKENS", {"tenant-1": ["token-a", "token-b"]})
-    monkeypatch.setattr(main_mod, "redis_client", None)
+    async def fake_revoke(tenant_id: str, *, token_hash: str | None = None, token_id: str | None = None):
+        assert tenant_id == "tenant-1"
+        assert token_hash is not None
+        return 1
+    monkeypatch.setattr(main_mod, "revoke_data_plane_token_db", fake_revoke)
 
     resp = client.request(
         "DELETE",
@@ -192,4 +222,4 @@ def test_admin_revoke_token(client, monkeypatch) -> None:
         json={"tenant_id": "tenant-1", "token": "token-a"},
     )
     assert resp.status_code == 200
-    assert resp.json()["tokens"] == ["token-b"]
+    assert resp.json()["revoked"] == 1

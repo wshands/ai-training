@@ -100,7 +100,7 @@ export const useWebSocket = (urlOrFactory, onMessage, options = {}) => {
         wsRef.current.close();
       }
     };
-  }, [reconnectInterval, maxReconnectAttempts]);  // ❗ removed onMessage and url
+  }, [reconnectInterval, maxReconnectAttempts, urlOrFactory]);  // reconnect when url changes
 
   return { status, ws: wsRef.current };
 };

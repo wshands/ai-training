@@ -34,6 +34,8 @@ import uuid
 import time
 import json
 import secrets
+import hashlib
+import hmac
 import redis.asyncio as redis
 
 from datetime import datetime
@@ -59,11 +61,10 @@ from common.ai_training_common.config import (
     CLERK_ISSUER,
     CLERK_AUDIENCE,
     CLERK_JWT_ALGORITHM,
-    DATA_PLANE_API_TOKEN,
     DATA_PLANE_TENANT_ID,
-    DATA_PLANE_API_TOKENS,
     DATA_PLANE_LOG_POLLS,
-    parse_data_plane_tokens,
+    DATA_PLANE_TOKEN_PEPPER,
+    JOB_LOCK_TIMEOUT_SECONDS,
     CONTROL_PLANE_ADMIN_TOKEN,
 )
 from .kafka_bus import init_kafka, send_event
@@ -72,10 +73,16 @@ from common.ai_training_common.db import (
     persist_initial_job,
     fetch_jobs,
     fetch_jobs_by_state,
+    claim_jobs,
     fetch_job_events_since,
     fetch_job_events_before,
     fetch_job_events_latest,
     fetch_job,
+    fetch_data_plane_token,
+    insert_data_plane_token,
+    list_data_plane_tokens as list_data_plane_tokens_db,
+    revoke_data_plane_token as revoke_data_plane_token_db,
+    mark_data_plane_token_used,
 )
 from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
 
@@ -83,6 +90,7 @@ from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
 class JobState(str, Enum):
     SUBMITTED = "SUBMITTED"
     PENDING = "PENDING"
+    RETRYING = "RETRYING"
     RUNNING = "RUNNING"
     PREEMPTED = "PREEMPTED"
     SUCCEEDED = "SUCCEEDED"
@@ -114,10 +122,6 @@ class AuthContext(BaseModel):
 class DataPlaneContext(BaseModel):
     tenant_id: str
     agent_id: str
-
-
-DATA_PLANE_TOKENS: dict[str, list[str]] = parse_data_plane_tokens(DATA_PLANE_API_TOKENS)
-DATA_PLANE_TOKEN_REDIS_KEY = "data_plane_tokens"
 
 
 DEFAULT_JOBS_LIMIT = 50
@@ -252,39 +256,17 @@ def get_admin_identity(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
 
 
-async def _load_data_plane_tokens() -> dict[str, list[str]]:
-    if redis_client is None:
-        return DATA_PLANE_TOKENS
-    raw = await redis_client.get(DATA_PLANE_TOKEN_REDIS_KEY)
-    if not raw:
-        return DATA_PLANE_TOKENS
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return DATA_PLANE_TOKENS
-    tokens_map: dict[str, list[str]] = {}
-    for tenant_id, tokens in (data or {}).items():
-        if isinstance(tokens, str):
-            tokens_map[tenant_id] = [tokens]
-        elif isinstance(tokens, list):
-            tokens_map[tenant_id] = [t for t in tokens if isinstance(t, str)]
-    return tokens_map
-
-
-async def _store_data_plane_tokens(tokens_map: dict[str, list[str]]) -> None:
-    global DATA_PLANE_TOKENS
-    DATA_PLANE_TOKENS = tokens_map
-    if redis_client is None:
-        return
-    await redis_client.set(DATA_PLANE_TOKEN_REDIS_KEY, json.dumps(tokens_map))
+def _hash_data_plane_token(token: str) -> str:
+    # Tokens are stored hashed in Postgres to avoid persisting plaintext secrets.
+    key = (DATA_PLANE_TOKEN_PEPPER or "").encode()
+    return hmac.new(key, token.encode(), hashlib.sha256).hexdigest()
 
 
 async def get_data_plane_identity(request: Request) -> DataPlaneContext:
     """Authenticate data-plane requests using a shared token."""
-    if not DATA_PLANE_API_TOKEN and not DATA_PLANE_TOKENS:
-        raise HTTPException(status_code=500, detail="DATA_PLANE_API_TOKEN not configured")
-
     token = _extract_bearer_token(request)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing data-plane token")
 
     tenant_id = request.headers.get("x-tenant-id") or DATA_PLANE_TENANT_ID
     if not tenant_id:
@@ -292,12 +274,11 @@ async def get_data_plane_identity(request: Request) -> DataPlaneContext:
     if DATA_PLANE_TENANT_ID and tenant_id != DATA_PLANE_TENANT_ID:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant mismatch")
 
-    tokens_map = await _load_data_plane_tokens()
-    if tokens_map:
-        allowed_tokens = tokens_map.get(tenant_id, [])
-        if token not in allowed_tokens:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
-    elif token != DATA_PLANE_API_TOKEN:
+    token_hash = _hash_data_plane_token(token)
+    db_token = await fetch_data_plane_token(tenant_id, token_hash)
+    if db_token:
+        await mark_data_plane_token_used(str(db_token["id"]))
+    else:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid data-plane token")
 
     agent_id = request.headers.get("x-agent-id") or "unknown"
@@ -335,6 +316,7 @@ class JobConfig(BaseModel):
 class DataPlaneTokenRequest(BaseModel):
     tenant_id: str
     token: Optional[str] = None
+    token_id: Optional[str] = None
 
 
 def load_k8s_clients():
@@ -456,6 +438,11 @@ async def retry_job(
 
     cfg = row["config"]
     cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+    # Retry creates a new job: strip fields that must be regenerated.
+    cfg_obj.pop("job_id", None)
+    cfg_obj.pop("submitted_at", None)
+    cfg_obj.pop("seq_start", None)
+    cfg_obj.pop("retry_of", None)
 
     new_job_id = str(uuid.uuid4())
     job_cfg = JobConfig(
@@ -587,6 +574,48 @@ async def list_pending_jobs(
     return summaries
 
 
+@app.post("/internal/jobs/claim", response_model=List[JobSummary])
+async def claim_ready_jobs(
+    limit: int = DEFAULT_JOBS_LIMIT,
+    identity: DataPlaneContext = Depends(get_data_plane_identity),
+):
+    """Claim ready jobs for a data-plane agent (queue semantics)."""
+    safe_limit = max(1, min(limit, MAX_JOBS_LIMIT))
+    if DATA_PLANE_LOG_POLLS:
+        logger.info(
+            "Data-plane claim agent_id=%s tenant_id=%s limit=%s",
+            identity.agent_id,
+            identity.tenant_id,
+            safe_limit,
+        )
+    rows = await claim_jobs(
+        identity.tenant_id,
+        identity.agent_id,
+        safe_limit,
+        lock_timeout_seconds=JOB_LOCK_TIMEOUT_SECONDS,
+    )
+    summaries: List[JobSummary] = []
+    for r in rows:
+        last_event = r.get("last_event")
+        if isinstance(last_event, str):
+            last_event = json.loads(last_event)
+        last_error = (last_event or {}).get("error")
+        cfg = r["config"]
+        cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        summaries.append(
+            JobSummary(
+                job_id=r["job_id"],
+                status=(r["status"] or JobState.SUBMITTED.value),
+                created_at=r["created_at"],
+                submitted_at=r.get("submitted_at"),
+                updated_at=r.get("updated_at"),
+                config=cfg_obj,
+                last_error=last_error,
+            )
+        )
+    return summaries
+
+
 @app.post("/internal/events")
 async def ingest_data_plane_event(
     event: JobEventIn,
@@ -608,7 +637,19 @@ async def list_data_plane_tokens(
     _: None = Depends(get_admin_identity),
 ):
     """List data-plane tokens for all tenants or a specific tenant."""
-    tokens_map = await _load_data_plane_tokens()
+    rows = await list_data_plane_tokens_db(tenant_id)
+    tokens_map: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        tid = row["tenant_id"]
+        tokens_map.setdefault(tid, []).append(
+            {
+                "token_id": str(row["id"]),
+                "token_prefix": row["token_prefix"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "last_used_at": row["last_used_at"].isoformat() if row["last_used_at"] else None,
+                "revoked_at": row["revoked_at"].isoformat() if row["revoked_at"] else None,
+            }
+        )
     if tenant_id:
         return {tenant_id: tokens_map.get(tenant_id, [])}
     return tokens_map
@@ -620,14 +661,16 @@ async def mint_data_plane_token(
     _: None = Depends(get_admin_identity),
 ):
     """Mint a data-plane token for a tenant (manual rotation)."""
-    tokens_map = await _load_data_plane_tokens()
     token = req.token or secrets.token_urlsafe(32)
-    tokens = list(tokens_map.get(req.tenant_id, []))
-    if token not in tokens:
-        tokens.append(token)
-    tokens_map[req.tenant_id] = tokens
-    await _store_data_plane_tokens(tokens_map)
-    return {"tenant_id": req.tenant_id, "token": token, "tokens": tokens}
+    token_hash = _hash_data_plane_token(token)
+    token_prefix = token[:8]
+    row = await insert_data_plane_token(req.tenant_id, token_prefix, token_hash)
+    return {
+        "tenant_id": req.tenant_id,
+        "token": token,
+        "token_id": str(row["id"]),
+        "token_prefix": row["token_prefix"],
+    }
 
 
 @app.delete("/internal/admin/data-plane-tokens")
@@ -636,21 +679,13 @@ async def revoke_data_plane_token(
     _: None = Depends(get_admin_identity),
 ):
     """Remove a data-plane token or clear all tokens for a tenant."""
-    tokens_map = await _load_data_plane_tokens()
-    tokens = list(tokens_map.get(req.tenant_id, []))
-
-    if req.token:
-        tokens = [t for t in tokens if t != req.token]
-    else:
-        tokens = []
-
-    if tokens:
-        tokens_map[req.tenant_id] = tokens
-    else:
-        tokens_map.pop(req.tenant_id, None)
-
-    await _store_data_plane_tokens(tokens_map)
-    return {"tenant_id": req.tenant_id, "tokens": tokens}
+    token_hash = _hash_data_plane_token(req.token) if req.token else None
+    revoked = await revoke_data_plane_token_db(
+        req.tenant_id,
+        token_hash=token_hash,
+        token_id=req.token_id,
+    )
+    return {"tenant_id": req.tenant_id, "revoked": revoked}
 
 
 @app.websocket("/ws/jobs/{job_id}")
@@ -788,7 +823,6 @@ def _render_job_events(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             data = json.loads(data)
 
         event_type = r["event_type"]
-        state_value = ""
 
         event_time = r["event_time"]
         event_time_iso = event_time.isoformat() if event_time else ""

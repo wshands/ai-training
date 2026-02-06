@@ -306,7 +306,7 @@ Training container MUST receive:
 - `JOB_CONFIG=/opt/job/config.json`
 - `JOB_ID=<job_id>`
 - `CONTROL_PLANE_URL=<https://control-plane-host>`
-- `DATA_PLANE_API_TOKEN=<token>`
+- `DATA_PLANE_API_TOKEN=<token>` (minted via admin API; stored hashed in DB)
 - `DATA_PLANE_TENANT_ID=<tenant_id>`
 
 ### 4.3 Logs + metrics

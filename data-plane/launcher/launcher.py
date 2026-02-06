@@ -152,12 +152,25 @@ async def close_http_client():
         http_client = None
 
 
-async def fetch_pending_jobs(limit: int = 1, status_filter: str = JobState.SUBMITTED.value):
+async def fetch_jobs_by_state(limit: int = 1, status_filter: str = JobState.SUBMITTED.value):
     if http_client is None:
         raise RuntimeError("HTTP client not initialized")
     resp = await http_client.get(
         "/internal/jobs",
         params={"status_filter": status_filter, "limit": limit},
+        headers=_data_plane_headers(),
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+    return resp.json() or []
+
+
+async def claim_ready_jobs(limit: int = 1):
+    if http_client is None:
+        raise RuntimeError("HTTP client not initialized")
+    resp = await http_client.post(
+        "/internal/jobs/claim",
+        params={"limit": limit},
         headers=_data_plane_headers(),
         timeout=10.0,
     )
@@ -189,7 +202,7 @@ async def emit_job_pending(job_id: str, tenant_id: str, user_id: str):
 async def poll_forever():
     while True:
         try:
-            jobs = await fetch_pending_jobs(limit=1)
+            jobs = await claim_ready_jobs(limit=1)
             if not jobs:
                 await asyncio.sleep(2)
             else:
@@ -208,7 +221,7 @@ async def poll_forever():
                     logger.info("Emitted JOB_PENDING for %s", job_id)
                     await process_job_submitted(job_id, cfg)
 
-            cancelled = await fetch_pending_jobs(limit=5, status_filter=JobState.CANCELLED.value)
+            cancelled = await fetch_jobs_by_state(limit=5, status_filter=JobState.CANCELLED.value)
             for job in cancelled:
                 job_id = job.get("job_id")
                 if job_id and job_id not in cancelled_seen:

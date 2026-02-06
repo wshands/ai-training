@@ -7,6 +7,7 @@ class JobState(str, Enum):
     """Supported job lifecycle states."""
     SUBMITTED = "SUBMITTED"
     PENDING = "PENDING"
+    RETRYING = "RETRYING"
     RUNNING = "RUNNING"
     PREEMPTED = "PREEMPTED"
     SUCCEEDED = "SUCCEEDED"
@@ -25,6 +26,12 @@ TRANSITIONS = {
     },
     JobState.PENDING: {
         "JOB_SUBMITTED": JobState.PENDING,
+        "JOB_PENDING": JobState.PENDING,
+        "JOB_STARTED": JobState.RUNNING,
+        "JOB_FAILED": JobState.FAILED,
+        "JOB_CANCELLED": JobState.CANCELLED,
+    },
+    JobState.RETRYING: {
         "JOB_PENDING": JobState.PENDING,
         "JOB_STARTED": JobState.RUNNING,
         "JOB_FAILED": JobState.FAILED,

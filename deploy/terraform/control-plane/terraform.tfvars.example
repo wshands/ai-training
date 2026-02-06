@@ -13,7 +13,6 @@ kafka_sasl_password       = ""
 kafka_ssl_ca_file         = ""
 kafka_ssl_cert_file       = ""
 kafka_ssl_key_file        = ""
-data_plane_api_token      = ""
 data_plane_tenant_id       = ""
 
 postgres_dsn              = ""
@@ -28,6 +27,7 @@ clerk_jwks_url            = "https://bursting-asp-1.clerk.accounts.dev/.well-kno
 clerk_issuer              = "https://bursting-asp-1.clerk.accounts.dev"
 clerk_audience            = ""
 clerk_jwt_algorithm       = "RS256"
+control_plane_admin_token = ""
 alb_certificate_arn       = ""
 log_level                 = "INFO"
 

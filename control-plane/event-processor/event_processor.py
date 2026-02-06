@@ -55,6 +55,11 @@ from common.ai_training_common.db import init_db
 from common.ai_training_common.state_machine import JobState, apply_event
 from common.ai_training_common.events import JobEventIn, JobEventOut
 from common.ai_training_common.kafka import build_kafka_config
+from common.ai_training_common.config import (
+    JOB_MAX_RETRIES,
+    JOB_RETRY_BASE_SECONDS,
+    JOB_RETRY_MAX_SECONDS,
+)
 
 
 # -----------------------
@@ -86,6 +91,11 @@ def _ts_to_pg_seconds(ts: Optional[int | float]) -> Optional[float]:
         return None
     ts_f = float(ts)
     return ts_f / 1000.0 if ts_f >= 1_000_000_000_000 else ts_f
+
+
+def _compute_retry_delay_seconds(retry_count: int) -> int:
+    delay = JOB_RETRY_BASE_SECONDS * (2 ** max(retry_count, 0))
+    return int(min(delay, JOB_RETRY_MAX_SECONDS))
 
 async def wait_for_postgres(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
     """Wait until the database responds to simple queries."""
@@ -343,6 +353,75 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         )
         current_state = JobState(row["last_state"]) if row and row["last_state"] else None
         new_state = apply_event(current_state, event_type)
+
+        # Retry scheduling: failed jobs can be re-queued with backoff.
+        if event_type == "JOB_FAILED":
+            job_row = await conn.fetchrow(
+                """
+                SELECT retry_count, max_retries
+                FROM jobs
+                WHERE job_id = $1 AND tenant_id = $2
+                """,
+                job_id,
+                tenant_id,
+            )
+            if job_row:
+                retry_count = int(job_row["retry_count"] or 0)
+                max_retries_raw = job_row["max_retries"]
+                max_retries = JOB_MAX_RETRIES if max_retries_raw is None else int(max_retries_raw)
+                if retry_count < max_retries:
+                    delay_seconds = _compute_retry_delay_seconds(retry_count)
+                    await conn.execute(
+                        """
+                        UPDATE jobs
+                        SET retry_count = $1,
+                            max_retries = $2,
+                            next_run_at = now() + ($3::int || ' seconds')::interval,
+                            locked_by = NULL,
+                            locked_at = NULL,
+                            updated_at = now()
+                        WHERE job_id = $4 AND tenant_id = $5
+                        """,
+                        retry_count + 1,
+                        max_retries,
+                        delay_seconds,
+                        job_id,
+                        tenant_id,
+                    )
+                    logger.info(
+                        "Scheduled retry for job_id=%s in %ss (attempt %s/%s)",
+                        job_id,
+                        delay_seconds,
+                        retry_count + 1,
+                        max_retries,
+                    )
+                    new_state = JobState.RETRYING
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE jobs
+                        SET locked_by = NULL,
+                            locked_at = NULL,
+                            updated_at = now()
+                        WHERE job_id = $1 AND tenant_id = $2
+                        """,
+                        job_id,
+                        tenant_id,
+                    )
+
+        if event_type in ("JOB_COMPLETED", "JOB_CANCELLED"):
+            await conn.execute(
+                """
+                UPDATE jobs
+                SET locked_by = NULL,
+                    locked_at = NULL,
+                    next_run_at = NULL,
+                    updated_at = now()
+                WHERE job_id = $1 AND tenant_id = $2
+                """,
+                job_id,
+                tenant_id,
+            )
 
         # Store details only in last_event (recommended; keeps job_state small and consistent)
         await conn.execute(

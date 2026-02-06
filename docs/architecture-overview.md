@@ -11,7 +11,7 @@ system.
 The control-plane is the system of record for jobs and user access. It exposes:
 
 - Public REST API for the UI (`/jobs`, `/jobs/{id}`, `/jobs/{id}/events`)
-- Internal endpoints for the data-plane (`/internal/jobs`, `/internal/events`)
+- Internal endpoints for the data-plane (`/internal/jobs/claim`, `/internal/jobs`, `/internal/events`)
 - WebSocket streams for live updates (`/ws/jobs/{job_id}`, `/ws/jobs`)
 
 It is responsible for:
@@ -79,8 +79,8 @@ The UI is a React app using Clerk for authentication. It:
 
 ### Job execution (data-plane)
 
-1) Job-launcher polls `GET /internal/jobs`.
-2) Control-plane returns submitted jobs for the tenant.
+1) Job-launcher claims jobs via `POST /internal/jobs/claim`.
+2) Control-plane atomically assigns ready jobs for the tenant.
 3) Job-launcher emits `JOB_PENDING` via `POST /internal/events`.
 4) Job-launcher creates a Kubernetes Job.
 5) Training job emits lifecycle/log/metric events to control-plane.
@@ -111,7 +111,7 @@ Internal endpoints are protected by a data-plane token and tenant scope:
 - `X-Tenant-Id: <tenant_id>`
 - `X-Agent-Id: <agent_id>` (for auditing)
 
-Token validation supports rotation via `DATA_PLANE_API_TOKENS`.
+Tokens are stored hashed in Postgres and minted via admin endpoints.
 
 See `docs/data-plane-auth.md` for details.
 

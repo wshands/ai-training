@@ -1,6 +1,5 @@
 """Environment-driven configuration defaults."""
 
-import json
 import os
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
@@ -29,22 +28,9 @@ CONTROL_PLANE_URL = os.environ.get("CONTROL_PLANE_URL", "")
 CONTROL_PLANE_ADMIN_TOKEN = os.environ.get("CONTROL_PLANE_ADMIN_TOKEN", "")
 DATA_PLANE_API_TOKEN = os.environ.get("DATA_PLANE_API_TOKEN", "")
 DATA_PLANE_TENANT_ID = os.environ.get("DATA_PLANE_TENANT_ID", "")
-DATA_PLANE_API_TOKENS = os.environ.get("DATA_PLANE_API_TOKENS", "")
 DATA_PLANE_LOG_POLLS = os.environ.get("DATA_PLANE_LOG_POLLS", "true").lower() in ("1", "true", "yes")
-
-
-def parse_data_plane_tokens(raw: str) -> dict[str, list[str]]:
-    """Parse DATA_PLANE_API_TOKENS into a tenant->tokens map."""
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    tokens_map: dict[str, list[str]] = {}
-    for tenant_id, tokens in (data or {}).items():
-        if isinstance(tokens, str):
-            tokens_map[tenant_id] = [tokens]
-        elif isinstance(tokens, list):
-            tokens_map[tenant_id] = [t for t in tokens if isinstance(t, str)]
-    return tokens_map
+DATA_PLANE_TOKEN_PEPPER = os.environ.get("DATA_PLANE_TOKEN_PEPPER", "")
+JOB_MAX_RETRIES = int(os.environ.get("JOB_MAX_RETRIES", "3"))
+JOB_RETRY_BASE_SECONDS = int(os.environ.get("JOB_RETRY_BASE_SECONDS", "30"))
+JOB_RETRY_MAX_SECONDS = int(os.environ.get("JOB_RETRY_MAX_SECONDS", "900"))
+JOB_LOCK_TIMEOUT_SECONDS = int(os.environ.get("JOB_LOCK_TIMEOUT_SECONDS", "300"))

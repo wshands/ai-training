@@ -3,6 +3,7 @@ import { EventType } from './eventTypes';
 export const JobState = Object.freeze({
   SUBMITTED: 'SUBMITTED',
   PENDING: 'PENDING',
+  RETRYING: 'RETRYING',
   RUNNING: 'RUNNING',
   PREEMPTED: 'PREEMPTED',
   SUCCEEDED: 'SUCCEEDED',

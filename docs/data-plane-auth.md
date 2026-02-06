@@ -1,19 +1,23 @@
 # Data-plane Authentication Model
 
-This document describes how the control-plane and data-plane authenticate and how
-the `API token`, `agent_id`, and `tenant_id` are used together.
+This document describes how the control-plane and data-plane authenticate and
+how the API token is stored and validated.
 
 ## Overview
 
 The data-plane (job-launcher + training jobs) does not talk to Kafka directly.
 Instead it calls internal control-plane endpoints:
 
-- `GET /internal/jobs` to fetch jobs to run
+- `POST /internal/jobs/claim` to atomically claim jobs to run
+- `GET /internal/jobs` to query jobs by state (cancel checks)
 - `POST /internal/events` to publish lifecycle events
 
 Those endpoints are protected by a shared data-plane token and scoped to a
 tenant. This keeps the control-plane as the system of record for job scheduling
 and enforces tenant isolation.
+
+The control-plane requires tokens to exist in Postgres; env token fallbacks are
+not supported.
 
 ## Concepts
 
@@ -41,19 +45,36 @@ internal request as a bearer token:
 Authorization: Bearer <token>
 ```
 
-The control-plane accepts the token in one of two ways:
+The token is minted via the admin API and stored hashed in Postgres. The
+data-plane reads the plaintext token from its environment and sends it on
+requests; the control-plane does not accept env-based token fallbacks.
 
-1) **Single token** (legacy/simple):
-   - `DATA_PLANE_API_TOKEN` is a single shared token.
-2) **Token rotation map** (recommended):
-   - `DATA_PLANE_API_TOKENS` is a JSON map of tenant -> list of tokens.
-   - This lets you rotate tokens per tenant without downtime.
+### Token hashing + storage (Postgres)
 
-Example:
+Tokens are stored in Postgres in the `data_plane_tokens` table. The control-plane
+never stores raw tokens. Instead it stores:
 
-```
-DATA_PLANE_API_TOKENS='{"org_123": ["old-token", "new-token"]}'
-```
+- `token_hash`: HMAC-SHA256 of the token using `DATA_PLANE_TOKEN_PEPPER`
+- `token_prefix`: first 8 characters of the token for display/debugging
+- `created_at`, `last_used_at`, `revoked_at`
+
+Purpose of hashing:
+
+- Prevents plaintext tokens from being stored at rest
+- Allows rotation and revocation without exposing secrets
+- Enables simple audit metadata (last used, created)
+
+Validation flow:
+
+1) Control-plane extracts the bearer token.
+2) It computes `token_hash` using `DATA_PLANE_TOKEN_PEPPER`.
+3) It looks up an active (not revoked) token for the tenant.
+4) If found, request is authorized and `last_used_at` is updated.
+
+Important:
+
+- `DATA_PLANE_TOKEN_PEPPER` must be set and identical across all control-plane
+  instances. Changing it invalidates all existing tokens.
 
 ### agent_id (`DATA_PLANE_AGENT_ID`)
 
@@ -69,122 +90,83 @@ X-Agent-Id: <agent_id>
 By default the agent id is the pod hostname, but you can set
 `DATA_PLANE_AGENT_ID` for a stable identifier across restarts.
 
-## Request flow
+## Admin endpoints (token minting)
 
-1) Launcher polls `GET /internal/jobs`.
-   - Headers:
-     - `Authorization: Bearer <token>`
-     - `X-Tenant-Id: <tenant_id>`
-     - `X-Agent-Id: <agent_id>`
-2) Control-plane validates:
-   - Token is valid for the tenant (single token or rotation map).
-   - Tenant matches `DATA_PLANE_TENANT_ID` if configured.
-3) Launcher receives jobs and emits `JOB_PENDING` via `POST /internal/events`.
-4) Control-plane publishes events to Kafka and updates job state.
+These endpoints are protected by `CONTROL_PLANE_ADMIN_TOKEN`.
 
-## Advantages
+- `POST /internal/admin/data-plane-tokens`  
+  Mint a new token (or register a provided token) for a tenant.
+- `GET /internal/admin/data-plane-tokens?tenant_id=<id>`  
+  List token metadata (prefix/created/last_used) for a tenant.
+- `DELETE /internal/admin/data-plane-tokens`  
+  Revoke a token by `token` or `token_id`, or revoke all for a tenant.
 
-- **Clear enforcement point**: only the control-plane can issue official jobs.
-- **Tenant isolation**: each data-plane is pinned to a tenant.
-- **Operational simplicity**: no Kafka access from customer clusters.
-- **Safe rotation**: multiple tokens per tenant allow zero-downtime rotation.
-- **Auditability**: agent ids identify which launcher is making requests.
-
-## Common configurations
-
-### Single tenant, single token
-
-```
-DATA_PLANE_TENANT_ID=org_123
-DATA_PLANE_API_TOKEN=local-dev-token
-```
-
-### Multi-token rotation (per tenant)
-
-```
-DATA_PLANE_API_TOKENS='{"org_123":["token-a","token-b"]}'
-DATA_PLANE_TENANT_ID=org_123
-```
-
-## Notes
-
-- Header names are case-insensitive (`X-Agent-Id` vs `x-agent-id`).
-- If `DATA_PLANE_API_TOKENS` is set, the single `DATA_PLANE_API_TOKEN` is ignored.
-- Use `DATA_PLANE_LOG_POLLS=false` to disable poll logging in the control-plane.
-
-## Admin endpoints (manual token minting)
-
-Use these endpoints to mint or list tokens without editing env vars by hand.
-Protect them with `CONTROL_PLANE_ADMIN_TOKEN`.
-
-- `GET /internal/admin/data-plane-tokens?tenant_id=<id>`
-- `POST /internal/admin/data-plane-tokens` with JSON body:
-
-```json
-{ "tenant_id": "org_123" }
-```
-
-Send the admin token as:
-
-```
-Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>
-```
-
-Note: tokens are stored in-process and, if Redis is available, persisted in
-Redis under the `data_plane_tokens` key.
-
-### How it works (short explanation)
-
-The admin endpoints use `CONTROL_PLANE_ADMIN_TOKEN` (bearer auth). On a `POST`,
-the control-plane loads the current token map (from Redis if present, otherwise
-from in-process memory), generates a token if needed, appends it to the tenant,
-and writes the updated map back to Redis. The data-plane auth path always checks
-the Redis-backed map first and falls back to the single `DATA_PLANE_API_TOKEN`
-only if the map is empty.
-
-### Example usage
-
-Mint a token for a tenant:
+Mint a token:
 
 ```bash
 curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"tenant_id":"org_123"}' \
-  http://localhost:8000/internal/admin/data-plane-tokens
+  https://<control-plane>/internal/admin/data-plane-tokens
 ```
 
-List tokens for a tenant:
+Register a provided token:
 
 ```bash
 curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
-  "http://localhost:8000/internal/admin/data-plane-tokens?tenant_id=org_123"
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"org_123","token":"my-fixed-token"}' \
+  https://<control-plane>/internal/admin/data-plane-tokens
 ```
 
-Sample response:
+Response (token is returned once):
 
 ```json
 {
-  "org_123": [
-    "token-abc",
-    "token-def"
-  ]
+  "tenant_id": "org_123",
+  "token": "plain-text-token",
+  "token_id": "uuid",
+  "token_prefix": "plain-te"
 }
 ```
 
-Revoke a token for a tenant (If token is omitted, it clears all tokens for the tenant.):
+List tokens (metadata only):
+
+```bash
+curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+  "https://<control-plane>/internal/admin/data-plane-tokens?tenant_id=org_123"
+```
+
+Revoke a token (by token or token_id):
 
 ```bash
 curl -X DELETE -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id":"org_123","token":"token-abc"}' \
-  http://localhost:8000/internal/admin/data-plane-tokens
+  -d '{"tenant_id":"org_123","token":"plain-text-token"}' \
+  https://<control-plane>/internal/admin/data-plane-tokens
 ```
 
-Add a token for a tenant
+Revoke by token_id:
 
 ```bash
-curl -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+curl -X DELETE -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id":"org_...","token":"another-token"}' \
-  http://localhost:8000/internal/admin/data-plane-tokens
+  -d '{"tenant_id":"org_123","token_id":"uuid"}' \
+  https://<control-plane>/internal/admin/data-plane-tokens
 ```
+
+Revoke all tokens for a tenant:
+
+```bash
+curl -X DELETE -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"org_123"}' \
+  https://<control-plane>/internal/admin/data-plane-tokens
+```
+
+## Advantages
+
+- Clear enforcement point: only the control-plane issues tokens
+- Tenant isolation: each data-plane is pinned to a tenant
+- Safe rotation: tokens can be minted and revoked without downtime
+- Auditability: last-used timestamps and prefixes are stored
