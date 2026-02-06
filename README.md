@@ -35,7 +35,7 @@ export ACCOUNT_ID=230407893272
 export ECR_BASE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
 # 2) Login to ECR
-aws ecr get-login-password --region "$REGION" | \
+aws ecr get-login-password --region "$REGION" --profile AdministratorAccess-230407893272 | \
   docker login --username AWS --password-stdin "$ECR_BASE"
 
 # 3) Create repos if they don't exist
@@ -55,8 +55,8 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 ```
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 \       
-  -t "$ECR_BASE/ai-training/control-plane:latest" \  
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t "$ECR_BASE/ai-training/control-plane:latest" \
   -f control-plane/api/Dockerfile.prod --push .
 ```
 
