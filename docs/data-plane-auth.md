@@ -5,7 +5,7 @@ how the API token is stored and validated.
 
 ## Overview
 
-The data-plane (job-launcher + training jobs) does not talk to Kafka directly.
+The data-plane (job-launcher + training jobs) does not talk to the event bus directly.
 Instead it calls internal control-plane endpoints:
 
 - `POST /internal/jobs/claim` to atomically claim jobs to run

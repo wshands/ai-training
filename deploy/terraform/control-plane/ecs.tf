@@ -1,39 +1,62 @@
 locals {
-  kafka_bootstrap_value = var.kafka_bootstrap != "" ? var.kafka_bootstrap : data.aws_msk_bootstrap_brokers.this.bootstrap_brokers_sasl_iam
-  redis_url_value       = var.redis_url != "" ? var.redis_url : "redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
-  kafka_security_protocol_value = var.kafka_security_protocol != "" ? var.kafka_security_protocol : "SASL_SSL"
-  kafka_sasl_mechanism_value    = var.kafka_sasl_mechanism != "" ? var.kafka_sasl_mechanism : "AWS_MSK_IAM"
-  postgres_dsn_secret_arn_value = var.postgres_dsn_secret_arn != "" ? var.postgres_dsn_secret_arn : aws_secretsmanager_secret.postgres_dsn.arn
-  msk_cluster_arn_value         = var.msk_cluster_arn != "" ? var.msk_cluster_arn : aws_msk_serverless_cluster.this.arn
-  msk_topic_arn                 = "${replace(local.msk_cluster_arn_value, ":cluster/", ":topic/")}/*"
-  msk_group_arn                 = "${replace(local.msk_cluster_arn_value, ":cluster/", ":group/")}/*"
+  event_bus_provider = lower(var.event_bus_provider)
+  kafka_enabled      = local.event_bus_provider == "kafka"
+  sqs_enabled        = local.event_bus_provider == "sqs"
+  msk_enabled        = local.kafka_enabled && var.msk_cluster_arn == ""
 
-  common_env = merge(
+  kafka_bootstrap_value = local.kafka_enabled ? (
+    var.kafka_bootstrap != "" ? var.kafka_bootstrap : data.aws_msk_bootstrap_brokers.this[0].bootstrap_brokers_sasl_iam
+  ) : ""
+  redis_url_value       = var.redis_url != "" ? var.redis_url : "redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
+  kafka_security_protocol_value = local.kafka_enabled ? (
+    var.kafka_security_protocol != "" ? var.kafka_security_protocol : "SASL_SSL"
+  ) : ""
+  kafka_sasl_mechanism_value = local.kafka_enabled ? (
+    var.kafka_sasl_mechanism != "" ? var.kafka_sasl_mechanism : "AWS_MSK_IAM"
+  ) : ""
+  postgres_dsn_secret_arn_value = var.postgres_dsn_secret_arn != "" ? var.postgres_dsn_secret_arn : aws_secretsmanager_secret.postgres_dsn.arn
+  msk_cluster_arn_value = local.kafka_enabled ? (
+    var.msk_cluster_arn != "" ? var.msk_cluster_arn : aws_msk_serverless_cluster.this[0].arn
+  ) : ""
+  msk_topic_arn = local.kafka_enabled ? "${replace(local.msk_cluster_arn_value, ":cluster/", ":topic/")}/*" : ""
+  msk_group_arn = local.kafka_enabled ? "${replace(local.msk_cluster_arn_value, ":cluster/", ":group/")}/*" : ""
+
+  base_env = {
+    EVENT_BUS_PROVIDER = local.event_bus_provider
+    REDIS_URL          = local.redis_url_value
+    LOG_LEVEL          = var.log_level
+  }
+
+  kafka_env = local.kafka_enabled ? merge(
     {
       KAFKA_BOOTSTRAP         = local.kafka_bootstrap_value
       KAFKA_TOPIC             = var.kafka_topic
-      REDIS_URL               = local.redis_url_value
       KAFKA_SECURITY_PROTOCOL = local.kafka_security_protocol_value
       KAFKA_SASL_MECHANISM    = local.kafka_sasl_mechanism_value
       KAFKA_SSL_CA_FILE       = var.kafka_ssl_ca_file
       KAFKA_SSL_CERT_FILE     = var.kafka_ssl_cert_file
       KAFKA_SSL_KEY_FILE      = var.kafka_ssl_key_file
-      LOG_LEVEL               = var.log_level
     },
     var.kafka_sasl_username_secret_arn == "" ? { KAFKA_SASL_USERNAME = var.kafka_sasl_username } : {},
     var.kafka_sasl_password_secret_arn == "" ? { KAFKA_SASL_PASSWORD = var.kafka_sasl_password } : {}
-  )
+  ) : {}
+
+  sqs_env = local.sqs_enabled ? {
+    SQS_QUEUE_URL = aws_sqs_queue.events[0].id
+  } : {}
+
+  common_env = merge(local.base_env, local.kafka_env, local.sqs_env)
 
   common_secrets = flatten([
     local.postgres_dsn_secret_arn_value != "" ? [{
       name      = "POSTGRES_DSN"
       valueFrom = local.postgres_dsn_secret_arn_value
     }] : [],
-    var.kafka_sasl_username_secret_arn != "" ? [{
+    local.kafka_enabled && var.kafka_sasl_username_secret_arn != "" ? [{
       name      = "KAFKA_SASL_USERNAME"
       valueFrom = var.kafka_sasl_username_secret_arn
     }] : [],
-    var.kafka_sasl_password_secret_arn != "" ? [{
+    local.kafka_enabled && var.kafka_sasl_password_secret_arn != "" ? [{
       name      = "KAFKA_SASL_PASSWORD"
       valueFrom = var.kafka_sasl_password_secret_arn
     }] : []
@@ -42,8 +65,8 @@ locals {
   secret_arns = [
     for arn in [
       local.postgres_dsn_secret_arn_value,
-      var.kafka_sasl_username_secret_arn,
-      var.kafka_sasl_password_secret_arn
+      local.kafka_enabled ? var.kafka_sasl_username_secret_arn : "",
+      local.kafka_enabled ? var.kafka_sasl_password_secret_arn : ""
     ] : arn if arn != ""
   ]
 
@@ -116,6 +139,7 @@ resource "aws_iam_role" "task" {
 }
 
 data "aws_iam_policy_document" "msk_iam" {
+  count = local.kafka_enabled ? 1 : 0
   statement {
     effect = "Allow"
     actions = [
@@ -148,13 +172,42 @@ data "aws_iam_policy_document" "msk_iam" {
 }
 
 resource "aws_iam_policy" "msk_iam" {
+  count  = local.kafka_enabled ? 1 : 0
   name   = "ai-platform-msk-iam"
-  policy = data.aws_iam_policy_document.msk_iam.json
+  policy = data.aws_iam_policy_document.msk_iam[0].json
 }
 
 resource "aws_iam_role_policy_attachment" "task_msk_iam" {
+  count      = local.kafka_enabled ? 1 : 0
   role       = aws_iam_role.task.name
-  policy_arn = aws_iam_policy.msk_iam.arn
+  policy_arn = aws_iam_policy.msk_iam[0].arn
+}
+
+data "aws_iam_policy_document" "sqs_iam" {
+  count = local.sqs_enabled ? 1 : 0
+  statement {
+    effect = "Allow"
+    actions = [
+      "sqs:SendMessage",
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+    ]
+    resources = [aws_sqs_queue.events[0].arn]
+  }
+}
+
+resource "aws_iam_policy" "sqs_iam" {
+  count  = local.sqs_enabled ? 1 : 0
+  name   = "ai-platform-sqs-iam"
+  policy = data.aws_iam_policy_document.sqs_iam[0].json
+}
+
+resource "aws_iam_role_policy_attachment" "task_sqs_iam" {
+  count      = local.sqs_enabled ? 1 : 0
+  role       = aws_iam_role.task.name
+  policy_arn = aws_iam_policy.sqs_iam[0].arn
 }
 
 resource "aws_ecs_task_definition" "control_plane" {

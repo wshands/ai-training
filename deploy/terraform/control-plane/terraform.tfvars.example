@@ -13,6 +13,8 @@ kafka_sasl_password       = ""
 kafka_ssl_ca_file         = ""
 kafka_ssl_cert_file       = ""
 kafka_ssl_key_file        = ""
+event_bus_provider        = "sqs"
+sqs_queue_name            = "job-events.fifo"
 data_plane_tenant_id       = ""
 
 postgres_dsn              = ""

@@ -1,4 +1,5 @@
 resource "aws_security_group" "msk" {
+  count  = local.msk_enabled ? 1 : 0
   name   = "ai-platform-msk"
   vpc_id = module.vpc.vpc_id
 
@@ -21,6 +22,7 @@ resource "aws_security_group" "msk" {
 }
 
 resource "aws_msk_serverless_cluster" "this" {
+  count        = local.msk_enabled ? 1 : 0
   cluster_name = "ai-platform-msk"
 
   client_authentication {
@@ -33,10 +35,11 @@ resource "aws_msk_serverless_cluster" "this" {
 
   vpc_config {
     subnet_ids         = module.vpc.private_subnets
-    security_group_ids = [aws_security_group.msk.id]
+    security_group_ids = [aws_security_group.msk[0].id]
   }
 }
 
 data "aws_msk_bootstrap_brokers" "this" {
-  cluster_arn = aws_msk_serverless_cluster.this.arn
+  count       = local.kafka_enabled && var.kafka_bootstrap == "" ? 1 : 0
+  cluster_arn = local.msk_cluster_arn_value
 }

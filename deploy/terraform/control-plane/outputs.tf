@@ -10,12 +10,12 @@ output "ecs_cluster_name" {
 
 output "msk_bootstrap_brokers" {
   description = "MSK bootstrap brokers (SASL IAM)"
-  value       = data.aws_msk_bootstrap_brokers.this.bootstrap_brokers_sasl_iam
+  value       = local.kafka_enabled ? (var.kafka_bootstrap != "" ? var.kafka_bootstrap : data.aws_msk_bootstrap_brokers.this[0].bootstrap_brokers_sasl_iam) : ""
 }
 
 output "msk_cluster_arn" {
   description = "MSK cluster ARN"
-  value       = aws_msk_serverless_cluster.this.arn
+  value       = local.kafka_enabled ? local.msk_cluster_arn_value : ""
 }
 
 output "redis_primary_endpoint" {
@@ -56,4 +56,9 @@ output "ui_url" {
 output "api_url" {
   description = "API URL (custom domain if configured, otherwise ALB DNS)"
   value       = local.api_has_domain ? "https://${var.api_domain_name}" : "http://${aws_lb.control_plane.dns_name}"
+}
+
+output "sqs_queue_url" {
+  description = "SQS FIFO queue URL for job events"
+  value       = local.sqs_enabled ? aws_sqs_queue.events[0].id : ""
 }

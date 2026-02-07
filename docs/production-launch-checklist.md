@@ -7,8 +7,9 @@ AWS and the data-plane in customer Kubernetes clusters.
 
 - [ ] Control-plane and event-processor images pushed to ECR
 - [ ] ECS task definitions updated to new image tags
-- [ ] Security groups allow outbound to MSK/RDS/ElastiCache
-- [ ] MSK bootstrap reachable from ECS subnets
+- [ ] Security groups allow outbound to MSK (if using Kafka) / RDS / ElastiCache
+- [ ] MSK bootstrap reachable from ECS subnets (Kafka mode only)
+- [ ] SQS FIFO queue reachable and IAM policy attached (SQS mode only)
 - [ ] RDS/Aurora reachable from ECS subnets
 - [ ] ElastiCache reachable from ECS subnets
 - [ ] HTTPS endpoint in place (ALB + certificate)

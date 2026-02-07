@@ -1,6 +1,7 @@
 aiokafka
 asyncpg
 aws-msk-iam-sasl-signer-python
+boto3
 debugpy
 pydantic
 redis[asyncio]

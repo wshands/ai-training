@@ -67,7 +67,7 @@ from common.ai_training_common.config import (
     JOB_LOCK_TIMEOUT_SECONDS,
     CONTROL_PLANE_ADMIN_TOKEN,
 )
-from .kafka_bus import init_kafka, send_event
+from .event_bus import init_event_bus, close_event_bus, send_event
 from common.ai_training_common.db import (
     init_db,
     persist_initial_job,
@@ -133,7 +133,7 @@ MAX_EVENTS_LIMIT = 2000
 async def lifespan(app: FastAPI):
     """Initialize shared resources and clean them up on shutdown."""
     await init_db()
-    await init_kafka()
+    await init_event_bus()
     global redis_client
     redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     try:
@@ -142,6 +142,7 @@ async def lifespan(app: FastAPI):
         if redis_client:
             await redis_client.aclose()
             redis_client = None
+        await close_event_bus()
 
 
 app = FastAPI(title="AI Platform Control Plane", lifespan=lifespan)

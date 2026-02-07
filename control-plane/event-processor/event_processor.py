@@ -38,6 +38,7 @@ from pydantic import ValidationError
 from typing import Any, Dict, Literal, Mapping, Optional, Tuple
 
 import asyncpg
+import boto3
 from asyncpg.exceptions import UniqueViolationError
 import redis.asyncio as redis
 from aiokafka import AIOKafkaConsumer
@@ -56,9 +57,12 @@ from common.ai_training_common.state_machine import JobState, apply_event
 from common.ai_training_common.events import JobEventIn, JobEventOut
 from common.ai_training_common.kafka import build_kafka_config
 from common.ai_training_common.config import (
+    EVENT_BUS_PROVIDER,
     JOB_MAX_RETRIES,
     JOB_RETRY_BASE_SECONDS,
     JOB_RETRY_MAX_SECONDS,
+    SQS_ENDPOINT_URL,
+    SQS_QUEUE_URL,
 )
 
 
@@ -78,6 +82,9 @@ EVENT_PRUNE_INTERVAL_SECONDS = int(os.environ.get("EVENT_PRUNE_INTERVAL_SECONDS"
 KAFKA_AUTO_CREATE_TOPICS = os.environ.get("KAFKA_AUTO_CREATE_TOPICS", "true").lower() in ("1", "true", "yes")
 KAFKA_TOPIC_PARTITIONS = int(os.environ.get("KAFKA_TOPIC_PARTITIONS", "3"))
 KAFKA_TOPIC_REPLICATION_FACTOR = int(os.environ.get("KAFKA_TOPIC_REPLICATION_FACTOR", "2"))
+SQS_MAX_MESSAGES = int(os.environ.get("SQS_MAX_MESSAGES", "10"))
+SQS_WAIT_TIME_SECONDS = int(os.environ.get("SQS_WAIT_TIME_SECONDS", "20"))
+SQS_VISIBILITY_TIMEOUT_SECONDS = int(os.environ.get("SQS_VISIBILITY_TIMEOUT_SECONDS", "30"))
 
 MissingJobRowPolicy = Literal["warn", "raise", "upsert_stub"]
 
@@ -532,6 +539,79 @@ async def ensure_topic(kafka_config: Dict[str, Any]) -> bool:
         await admin.close()
 
 
+def _build_sqs_client():
+    kwargs = {}
+    if SQS_ENDPOINT_URL:
+        kwargs["endpoint_url"] = SQS_ENDPOINT_URL
+    return boto3.client("sqs", **kwargs)
+
+
+async def consume_sqs_loop(conn: asyncpg.Connection, r: redis.Redis) -> None:
+    """Poll SQS FIFO for job events and process them."""
+    if not SQS_QUEUE_URL:
+        raise RuntimeError("SQS_QUEUE_URL is required when EVENT_BUS_PROVIDER=sqs")
+
+    sqs_client = _build_sqs_client()
+    while True:
+        resp = await asyncio.to_thread(
+            sqs_client.receive_message,
+            QueueUrl=SQS_QUEUE_URL,
+            MaxNumberOfMessages=SQS_MAX_MESSAGES,
+            WaitTimeSeconds=SQS_WAIT_TIME_SECONDS,
+            VisibilityTimeout=SQS_VISIBILITY_TIMEOUT_SECONDS,
+        )
+        messages = resp.get("Messages", [])
+        if not messages:
+            continue
+
+        for msg in messages:
+            receipt_handle = msg.get("ReceiptHandle")
+            body = msg.get("Body", "")
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                logger.warning("Dropping invalid SQS message (non-JSON body)")
+                if receipt_handle:
+                    await asyncio.to_thread(
+                        sqs_client.delete_message,
+                        QueueUrl=SQS_QUEUE_URL,
+                        ReceiptHandle=receipt_handle,
+                    )
+                continue
+
+            try:
+                ev = JobEventIn.model_validate(payload)
+            except ValidationError as e:
+                logger.warning("Dropping invalid event: %s value=%r", e, payload)
+                if receipt_handle:
+                    await asyncio.to_thread(
+                        sqs_client.delete_message,
+                        QueueUrl=SQS_QUEUE_URL,
+                        ReceiptHandle=receipt_handle,
+                    )
+                continue
+
+            if not ev.job_id:
+                if receipt_handle:
+                    await asyncio.to_thread(
+                        sqs_client.delete_message,
+                        QueueUrl=SQS_QUEUE_URL,
+                        ReceiptHandle=receipt_handle,
+                    )
+                continue
+
+            ws_event = await process_event(conn, ev)
+            if ws_event is not None:
+                await publish_ws_event(r, ws_event)
+
+            if receipt_handle:
+                await asyncio.to_thread(
+                    sqs_client.delete_message,
+                    QueueUrl=SQS_QUEUE_URL,
+                    ReceiptHandle=receipt_handle,
+                )
+
+
 async def publish_ws_event(r: redis.Redis, out: JobEventOut) -> None:
     """Publish a processed event to the tenant Redis channel."""
     channel = f"job_events:{out.tenant_id}"
@@ -573,43 +653,50 @@ async def main() -> None:
     await wait_for_schema(conn, timeout_s=60)
     asyncio.create_task(prune_old_events_loop(POSTGRES_DSN))
 
-    kafka_config = build_kafka_config()
-    if KAFKA_AUTO_CREATE_TOPICS:
-        await ensure_topic(kafka_config)
-    consumer = AIOKafkaConsumer(
-        IN_TOPIC,
-        group_id="event-processor",
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        enable_auto_commit=False,
-        max_poll_interval_ms=15 * 60 * 1000,
-        max_poll_records=10,
-        **kafka_config,
-    )
-
-    await start_consumer_with_retry(consumer, kafka_config)
     try:
-        async for msg in consumer:
+        if EVENT_BUS_PROVIDER == "kafka":
+            kafka_config = build_kafka_config()
+            if KAFKA_AUTO_CREATE_TOPICS:
+                await ensure_topic(kafka_config)
+            consumer = AIOKafkaConsumer(
+                IN_TOPIC,
+                group_id="event-processor",
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+                enable_auto_commit=False,
+                max_poll_interval_ms=15 * 60 * 1000,
+                max_poll_records=10,
+                **kafka_config,
+            )
+
+            await start_consumer_with_retry(consumer, kafka_config)
             try:
-                ev = JobEventIn.model_validate(msg.value)
-            except ValidationError as e:
-                logger.warning("Dropping invalid event: %s value=%r", e, msg.value)
-                await consumer.commit()
-                continue
+                async for msg in consumer:
+                    try:
+                        ev = JobEventIn.model_validate(msg.value)
+                    except ValidationError as e:
+                        logger.warning("Dropping invalid event: %s value=%r", e, msg.value)
+                        await consumer.commit()
+                        continue
 
-            if not ev.job_id:
-                await consumer.commit()
-                continue
+                    if not ev.job_id:
+                        await consumer.commit()
+                        continue
 
-            ws_event = await process_event(conn, ev)
-            if ws_event is not None:
-                await publish_ws_event(r, ws_event)
+                    ws_event = await process_event(conn, ev)
+                    if ws_event is not None:
+                        await publish_ws_event(r, ws_event)
 
-            try:
-                await consumer.commit()
-            except Exception as e:
-                logger.warning("Commit failed (rebalance?): %s", e)
+                    try:
+                        await consumer.commit()
+                    except Exception as e:
+                        logger.warning("Commit failed (rebalance?): %s", e)
+            finally:
+                await consumer.stop()
+        elif EVENT_BUS_PROVIDER == "sqs":
+            await consume_sqs_loop(conn, r)
+        else:
+            raise RuntimeError(f"Unsupported EVENT_BUS_PROVIDER: {EVENT_BUS_PROVIDER}")
     finally:
-        await consumer.stop()
         await r.aclose()
         await conn.close()
 

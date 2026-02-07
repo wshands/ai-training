@@ -4,6 +4,7 @@ uvicorn[standard]
 aiokafka
 aws-msk-iam-sasl-signer-python
 asyncpg
+boto3
 kubernetes
 redis[asyncio]
 PyJWT[crypto]

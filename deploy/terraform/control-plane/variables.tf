@@ -34,6 +34,18 @@ variable "event_processor_desired_count" {
   default     = 1
 }
 
+variable "event_bus_provider" {
+  type        = string
+  description = "Event bus provider (kafka or sqs)"
+  default     = "sqs"
+}
+
+variable "sqs_queue_name" {
+  type        = string
+  description = "SQS FIFO queue name for job events"
+  default     = "job-events.fifo"
+}
+
 variable "kafka_bootstrap" {
   type        = string
   description = "Kafka bootstrap servers"

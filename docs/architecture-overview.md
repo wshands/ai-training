@@ -19,13 +19,13 @@ It is responsible for:
 - Validating user identity (Clerk JWT)
 - Creating job records and emitting submission/cancel events
 - Enforcing tenant isolation
-- Publishing events to Kafka
+- Publishing events to the event bus (Kafka or SQS FIFO)
 - Serving job/event queries to the UI
 
 ### Event-processor
 
-The event-processor consumes Kafka events, validates them, and writes them to
-Postgres. It also publishes updates to Redis for WebSocket fan-out.
+The event-processor consumes event bus messages, validates them, and writes
+them to Postgres. It also publishes updates to Redis for WebSocket fan-out.
 
 Responsibilities:
 
@@ -36,7 +36,7 @@ Responsibilities:
 
 ### Data-plane (job-launcher + training-job)
 
-The data-plane runs in the customer’s cluster. It never talks to Kafka directly
+The data-plane runs in the customer’s cluster. It never talks to the event bus directly
 in production. Instead it:
 
 - Polls the control-plane for submitted jobs
@@ -46,10 +46,11 @@ in production. Instead it:
 The training job container emits metrics/logs via the control-plane HTTP ingest
 API.
 
-### Kafka
+### Event bus (SQS FIFO or Kafka)
 
-Kafka is the internal event bus for job lifecycle events. It is owned by the
-control-plane environment (MSK in production).
+Kafka or SQS FIFO are used as the internal event bus for job lifecycle events.
+Kafka runs on MSK in production when enabled; SQS FIFO is an alternative for
+simpler ops and lower cost.
 
 ### Postgres
 
@@ -74,7 +75,7 @@ The UI is a React app using Clerk for authentication. It:
 1) User signs in via Clerk.
 2) UI calls `POST /jobs/train` with JWT.
 3) Control-plane validates JWT and creates a job record.
-4) Control-plane emits `JOB_SUBMITTED` to Kafka.
+4) Control-plane emits `JOB_SUBMITTED` to the event bus.
 5) Event-processor stores the event and updates projections.
 
 ### Job execution (data-plane)
@@ -120,14 +121,15 @@ See `docs/data-plane-auth.md` for details.
 ### Production
 
 - Control-plane + event-processor: ECS Fargate or EKS
-- Kafka: MSK
+- Event bus: MSK or SQS FIFO
 - Postgres: RDS / Aurora
 - Redis: ElastiCache
 - Data-plane: customer Kubernetes cluster
 
 ### Development
 
-- Local docker-compose for control-plane, Kafka, Postgres, Redis
+- Local docker-compose for control-plane, Postgres, Redis
+- ElasticMQ for SQS-compatible local event bus (see `docs/event-bus.md`)
 - Local Kubernetes for data-plane tests (optional)
 - UI runs via `npm start`
 
@@ -136,10 +138,11 @@ See `docs/data-plane-auth.md` for details.
 - **Isolation:** tenant boundaries are enforced in control-plane and data-plane.
 - **Simplicity:** data-plane only needs HTTPS egress to control-plane.
 - **Auditability:** event stream is the source of truth for job history.
-- **Scalability:** Kafka + Postgres allow horizontal processing growth.
+- **Scalability:** Event bus + Postgres allow horizontal processing growth.
 
 ## Related docs
 
 - `docs/data-plane-auth.md`
 - `docs/training-job-contract.md`
 - `docs/contracts/contracts.md`
+- `docs/event-bus.md`

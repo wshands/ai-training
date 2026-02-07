@@ -1,7 +1,7 @@
 # Contracts (Locked Before Implementation)
 
 This document defines the **hard contracts** between components in this repo:
-- **Producers/Consumers** via Kafka `job-events`
+- **Producers/Consumers** via the event bus (`job-events`)
 - **Persistence** via Postgres (`jobs`, `job_state`, `job_events`)
 - **API surface** for UI + tooling
 - **Kubernetes job runner** interface (ConfigMap/Secret/env/logs/metrics)
@@ -10,7 +10,7 @@ If a change breaks this document, bump **schema_version** (events) and/or **api_
 
 ---
 
-## 1) Kafka Event Contract (`job-events` topic)
+## 1) Event Bus Contract (`job-events` topic / SQS FIFO queue)
 
 ### 1.1 Envelope (required for all events) — **v1**
 All events MUST conform to this envelope:
@@ -40,6 +40,8 @@ All events MUST conform to this envelope:
 
 #### Ordering + partitions
 - Kafka key MUST be `job_id` to ensure **per-job ordering** within a partition.
+- SQS FIFO MUST use `MessageGroupId = job_id` to preserve **per-job ordering**.
+- SQS FIFO MUST use `MessageDeduplicationId = event_id` for idempotency.
 - Consumers MUST NOT assume global ordering across jobs.
 
 #### Compatibility rules
@@ -326,7 +328,7 @@ Training container MUST receive:
 ## 5) Operational Guarantees
 
 ### 5.1 Delivery + idempotency
-- Assume Kafka delivers **at least once**.
+- Assume the event bus delivers **at least once** (Kafka or SQS FIFO).
 - Therefore:
   - Producers MUST set `event_id`.
   - DB MUST dedupe on `event_id` and/or `(job_id, seq)`.
