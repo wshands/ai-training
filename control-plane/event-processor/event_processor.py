@@ -39,6 +39,7 @@ from typing import Any, Dict, Literal, Mapping, Optional, Tuple
 
 import asyncpg
 import boto3
+from botocore.exceptions import ClientError
 from asyncpg.exceptions import UniqueViolationError
 import redis.asyncio as redis
 from aiokafka import AIOKafkaConsumer
@@ -62,6 +63,7 @@ from common.ai_training_common.config import (
     JOB_RETRY_BASE_SECONDS,
     JOB_RETRY_MAX_SECONDS,
     SQS_ENDPOINT_URL,
+    SQS_QUEUE_NAME,
     SQS_QUEUE_URL,
 )
 
@@ -545,17 +547,41 @@ def _build_sqs_client():
         kwargs["endpoint_url"] = SQS_ENDPOINT_URL
     return boto3.client("sqs", **kwargs)
 
+async def _resolve_sqs_queue_url(sqs_client) -> str:
+    if SQS_QUEUE_URL:
+        return SQS_QUEUE_URL
+    if not SQS_QUEUE_NAME:
+        raise RuntimeError("SQS_QUEUE_URL or SQS_QUEUE_NAME is required when EVENT_BUS_PROVIDER=sqs")
+    for _ in range(60):
+        try:
+            resp = await asyncio.to_thread(sqs_client.get_queue_url, QueueName=SQS_QUEUE_NAME)
+            return resp["QueueUrl"]
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "QueueDoesNotExist":
+                raise
+            if SQS_ENDPOINT_URL:
+                await asyncio.to_thread(
+                    sqs_client.create_queue,
+                    QueueName=SQS_QUEUE_NAME,
+                    Attributes={
+                        "FifoQueue": "true",
+                        "ContentBasedDeduplication": "false",
+                        "DeduplicationScope": "messageGroup",
+                        "FifoThroughputLimit": "perMessageGroupId",
+                    },
+                )
+            await asyncio.sleep(1)
+    raise RuntimeError(f"SQS queue not found after retries: {SQS_QUEUE_NAME}")
+
 
 async def consume_sqs_loop(conn: asyncpg.Connection, r: redis.Redis) -> None:
     """Poll SQS FIFO for job events and process them."""
-    if not SQS_QUEUE_URL:
-        raise RuntimeError("SQS_QUEUE_URL is required when EVENT_BUS_PROVIDER=sqs")
-
     sqs_client = _build_sqs_client()
+    queue_url = await _resolve_sqs_queue_url(sqs_client)
     while True:
         resp = await asyncio.to_thread(
             sqs_client.receive_message,
-            QueueUrl=SQS_QUEUE_URL,
+            QueueUrl=queue_url,
             MaxNumberOfMessages=SQS_MAX_MESSAGES,
             WaitTimeSeconds=SQS_WAIT_TIME_SECONDS,
             VisibilityTimeout=SQS_VISIBILITY_TIMEOUT_SECONDS,
@@ -574,7 +600,7 @@ async def consume_sqs_loop(conn: asyncpg.Connection, r: redis.Redis) -> None:
                 if receipt_handle:
                     await asyncio.to_thread(
                         sqs_client.delete_message,
-                        QueueUrl=SQS_QUEUE_URL,
+                        QueueUrl=queue_url,
                         ReceiptHandle=receipt_handle,
                     )
                 continue
@@ -586,7 +612,7 @@ async def consume_sqs_loop(conn: asyncpg.Connection, r: redis.Redis) -> None:
                 if receipt_handle:
                     await asyncio.to_thread(
                         sqs_client.delete_message,
-                        QueueUrl=SQS_QUEUE_URL,
+                        QueueUrl=queue_url,
                         ReceiptHandle=receipt_handle,
                     )
                 continue
@@ -595,7 +621,7 @@ async def consume_sqs_loop(conn: asyncpg.Connection, r: redis.Redis) -> None:
                 if receipt_handle:
                     await asyncio.to_thread(
                         sqs_client.delete_message,
-                        QueueUrl=SQS_QUEUE_URL,
+                        QueueUrl=queue_url,
                         ReceiptHandle=receipt_handle,
                     )
                 continue
@@ -607,7 +633,7 @@ async def consume_sqs_loop(conn: asyncpg.Connection, r: redis.Redis) -> None:
             if receipt_handle:
                 await asyncio.to_thread(
                     sqs_client.delete_message,
-                    QueueUrl=SQS_QUEUE_URL,
+                    QueueUrl=queue_url,
                     ReceiptHandle=receipt_handle,
                 )
 

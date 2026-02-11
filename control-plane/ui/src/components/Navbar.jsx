@@ -28,14 +28,14 @@ const Navbar = () => {
   if (isAuthRoute) return null;
 
   const onLogout = async () => {
-    await signOut();
-    navigate('/login');
+    await signOut({ redirectUrl: '/' });
+    navigate('/');
   };
 
   return (
     <header className="bg-slate-900 border-b border-slate-800">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link to="/app" className="font-semibold text-sky-400">
+        <Link to="/" className="font-semibold text-sky-400">
           AiTrainOps
         </Link>
         <nav className="flex gap-2 items-center">

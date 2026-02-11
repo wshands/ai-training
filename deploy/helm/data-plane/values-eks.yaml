@@ -1,11 +1,12 @@
 jobLauncher:
   image:
-    repository: 230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/job-launcher
+    repository: bigdog/ai-training-job-launcher
     tag: latest
     pullPolicy: IfNotPresent
   replicas: 1
+  trainingImage: bigdog/ai-training-job:latest
   trainingNamespace: "training-jobs"
-  controlPlaneUrl: ""https://api.aitrainops.com""
+  controlPlaneUrl: "https://api.aitrainops.com"
   #dataPlaneApiToken: "<data-plane-token>"
   #dataPlaneTenantId: "<tenant-id>"
   dataPlaneApiToken: "data-plane-token"

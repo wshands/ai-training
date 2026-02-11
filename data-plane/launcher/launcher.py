@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 
 TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "ai-platform-training-job:latest")
-#TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/training-job:latest")
 TRAINING_NAMESPACE = os.environ.get("TRAINING_NAMESPACE", "training-jobs")
 CONTROL_PLANE_URL = os.environ.get("CONTROL_PLANE_URL", "")
 DATA_PLANE_API_TOKEN = os.environ.get("DATA_PLANE_API_TOKEN", "")

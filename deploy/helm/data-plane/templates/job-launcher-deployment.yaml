@@ -20,6 +20,10 @@ spec:
           env:
             - name: TRAINING_NAMESPACE
               value: "{{ .Values.jobLauncher.trainingNamespace }}"
+            {{- if .Values.jobLauncher.trainingImage }}
+            - name: TRAINING_IMAGE
+              value: "{{ .Values.jobLauncher.trainingImage }}"
+            {{- end }}
             {{- if .Values.jobLauncher.controlPlaneUrl }}
             - name: CONTROL_PLANE_URL
               value: "{{ .Values.jobLauncher.controlPlaneUrl }}"

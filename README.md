@@ -9,7 +9,28 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - deploy/helm/ – Helm charts to deploy platform components
 - deploy/terraform/control-plane/ – Terraform skeleton for AWS infra
 - docker-compose.yml – Local dev stack (Kafka, Postgres, services)
-- .github/workflows/ – CI workflow to build/push Docker images
+- .github/workflows/ – CI workflows to build/push Docker images and deploy UI
+
+## CI setup checklist
+
+- [ ] Apply IAM OIDC stack: `deploy/terraform/iam-ci/`
+- [ ] Set GitHub Secrets:
+  - `AWS_ROLE_ARN` (ECR builds)
+  - `AWS_UI_ROLE_ARN` (UI deploy)
+- [ ] Set GitHub Variables:
+  - `AWS_REGION`
+  - `UI_BUCKET`
+  - `UI_CLOUDFRONT_DISTRIBUTION_ID`
+  - `REACT_APP_API_BASE_URL`
+  - `REACT_APP_WS_BASE_URL`
+  - `REACT_APP_CLERK_PUBLISHABLE_KEY`
+  - Example (GitHub CLI + Terraform outputs):
+    ```bash
+    gh variable set UI_BUCKET -b "$(terraform output -raw ui_bucket_name)"
+    gh variable set UI_CLOUDFRONT_DISTRIBUTION_ID -b "$(terraform output -raw ui_cloudfront_distribution_id)"
+    ```
+- [ ] Optional helper script to set GitHub secrets/variables:
+  - `scripts/setup-github-ci.sh`
 
 
 To start the cluster:
@@ -59,6 +80,13 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t "$ECR_BASE/ai-training/control-plane:latest" \
   -f control-plane/api/Dockerfile.prod --push .
 ```
+
+CI/CD note:
+- `.github/workflows/build-and-push-ecr.yml` builds and pushes control-plane + event-processor images to ECR on `main`/`develop` (OIDC).
+- `.github/workflows/deploy-ui.yml` builds and deploys the UI on `main`/`develop` (OIDC).
+- `.github/workflows/build-and-push-dockerhub.yml` builds and pushes data-plane images to DockerHub (public/test images).
+- `deploy/terraform/iam-ci/` provisions GitHub OIDC roles for CI (ECR + UI deploy).
+  - See `deploy/terraform/iam-ci/README.md` for required GitHub secrets and variables.
 
 To check the terraform stack (AWS services for control plane):
 ```bash

@@ -1,9 +1,10 @@
 jobLauncher:
   image:
-    repository: ai-platform-job-launcher
+    repository: bigdog/ai-training-job-launcher
     tag: latest
-    pullPolicy: Never
+    pullPolicy: IfNotPresent
   replicas: 1
+  trainingImage: bigdog/ai-training-job:latest
   trainingNamespace: "training-jobs"
   #controlPlaneUrl: "http://host.docker.internal:8000"
   controlPlaneUrl: "https://api.aitrainops.com"

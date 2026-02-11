@@ -1,0 +1,140 @@
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native
+    container_name: elasticmq
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+
+  sqs-init:
+    image: amazon/aws-cli:2.15.58
+    depends_on:
+      - elasticmq
+    entrypoint: ["/bin/bash", "-lc"]
+    command: |
+      set -e
+      echo "Waiting for ElasticMQ..."
+      for i in $(seq 1 60); do
+        aws --endpoint-url=http://elasticmq:9324 sqs list-queues >/dev/null 2>&1 && break
+        echo "ElasticMQ not ready yet..." && sleep 1
+      done
+      aws --endpoint-url=http://elasticmq:9324 sqs create-queue \
+        --queue-name job-events.fifo \
+        --attributes FifoQueue=true,ContentBasedDeduplication=false,DeduplicationScope=messageGroup,FifoThroughputLimit=perMessageGroupId || true
+      aws --endpoint-url=http://elasticmq:9324 sqs get-queue-url --queue-name job-events.fifo >/dev/null
+      echo "ElasticMQ queue ready."
+    environment:
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      AWS_DEFAULT_REGION: us-west-2
+
+  db-init:
+    build:
+      context: .
+      dockerfile: control-plane/api/Dockerfile.dev
+    environment:
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-c", "import asyncio; from common.ai_training_common.db import init_db; asyncio.run(init_db())"]
+    restart: "no"
+
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: controlplane
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: control-plane/api/Dockerfile.dev
+    environment:
+      EVENT_BUS_PROVIDER: sqs
+      SQS_ENDPOINT_URL: http://elasticmq:9324
+      SQS_QUEUE_NAME: job-events.fifo
+      AWS_REGION: us-west-2
+      AWS_DEFAULT_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+      REDIS_URL: redis://redis:6379/0
+      WAIT_FOR_DEBUGGER: "0"
+      CLERK_JWKS_URL: https://bursting-asp-1.clerk.accounts.dev/.well-known/jwks.json
+      CLERK_ISSUER: https://bursting-asp-1.clerk.accounts.dev
+      CLERK_JWT_ALGORITHM: RS256
+      CONTROL_PLANE_ADMIN_TOKEN: local-admin-token
+      DATA_PLANE_LOG_POLLS: "false"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      sqs-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    volumes:
+      - ./control-plane/api:/app/control-plane
+      - ./common:/app/common
+
+  event-processor:
+    build:
+      context: .
+      dockerfile: control-plane/event-processor/Dockerfile
+    environment:
+      EVENT_BUS_PROVIDER: sqs
+      SQS_ENDPOINT_URL: http://elasticmq:9324
+      SQS_QUEUE_NAME: job-events.fifo
+      AWS_REGION: us-west-2
+      AWS_DEFAULT_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
+      REDIS_URL: redis://redis:6379/0
+      WAIT_FOR_DEBUGGER: "0"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      sqs-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./control-plane/event-processor:/app/event-processor
+      - ./common:/app/common
+
+volumes:
+  pg-data: {}
+  redis-data: {}

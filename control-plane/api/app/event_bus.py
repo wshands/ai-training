@@ -7,11 +7,13 @@ from typing import Any, Mapping, Optional
 
 import boto3
 from aiokafka import AIOKafkaProducer
+from botocore.exceptions import ClientError
 
 from common.ai_training_common.config import (
     EVENT_BUS_PROVIDER,
     KAFKA_TOPIC,
     SQS_ENDPOINT_URL,
+    SQS_QUEUE_NAME,
     SQS_QUEUE_URL,
 )
 from common.ai_training_common.events import JobEventIn
@@ -30,7 +32,7 @@ async def init_event_bus() -> None:
         await _init_kafka()
         return
     if provider == "sqs":
-        _init_sqs()
+        await _init_sqs()
         return
     raise ValueError(f"Unsupported EVENT_BUS_PROVIDER: {provider}")
 
@@ -95,17 +97,41 @@ async def _send_kafka(ev: JobEventIn) -> None:
     )
 
 
-def _init_sqs() -> None:
+async def _init_sqs() -> None:
     global _sqs_client, _sqs_queue_url
     if _sqs_client is not None:
         return
-    if not SQS_QUEUE_URL:
-        raise RuntimeError("SQS_QUEUE_URL is required when EVENT_BUS_PROVIDER=sqs")
     kwargs = {}
     if SQS_ENDPOINT_URL:
         kwargs["endpoint_url"] = SQS_ENDPOINT_URL
     _sqs_client = boto3.client("sqs", **kwargs)
-    _sqs_queue_url = SQS_QUEUE_URL
+    if SQS_QUEUE_URL:
+        _sqs_queue_url = SQS_QUEUE_URL
+    elif SQS_QUEUE_NAME:
+        for _ in range(60):
+            try:
+                resp = await asyncio.to_thread(_sqs_client.get_queue_url, QueueName=SQS_QUEUE_NAME)
+                _sqs_queue_url = resp["QueueUrl"]
+                break
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") != "QueueDoesNotExist":
+                    raise
+                if SQS_ENDPOINT_URL:
+                    await asyncio.to_thread(
+                        _sqs_client.create_queue,
+                        QueueName=SQS_QUEUE_NAME,
+                        Attributes={
+                            "FifoQueue": "true",
+                            "ContentBasedDeduplication": "false",
+                            "DeduplicationScope": "messageGroup",
+                            "FifoThroughputLimit": "perMessageGroupId",
+                        },
+                    )
+                await asyncio.sleep(1)
+        if not _sqs_queue_url:
+            raise RuntimeError(f"SQS queue not found after retries: {SQS_QUEUE_NAME}")
+    else:
+        raise RuntimeError("SQS_QUEUE_URL or SQS_QUEUE_NAME is required when EVENT_BUS_PROVIDER=sqs")
 
 
 async def _send_sqs(ev: JobEventIn) -> None:

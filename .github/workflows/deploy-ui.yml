@@ -2,7 +2,7 @@ name: Deploy UI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - "control-plane/ui/**"
       - ".github/workflows/deploy-ui.yml"
@@ -31,7 +31,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_UI_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_UI_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Install dependencies
         working-directory: control-plane/ui

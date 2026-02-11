@@ -3,10 +3,11 @@ resource "random_id" "ui_bucket_suffix" {
 }
 
 locals {
-  ui_bucket_name = var.ui_bucket_name != "" ? var.ui_bucket_name : "ai-training-ui-${random_id.ui_bucket_suffix.hex}"
-  ui_domain_names = length(var.ui_domain_names) > 0 ? var.ui_domain_names : (
+  ui_bucket_name  = var.ui_bucket_name != "" ? var.ui_bucket_name : "ai-training-ui-${random_id.ui_bucket_suffix.hex}"
+  ui_domain_names = distinct(compact(concat(
+    var.ui_domain_names,
     var.ui_domain_name != "" ? [var.ui_domain_name] : []
-  )
+  )))
   ui_has_domain  = length(local.ui_domain_names) > 0 && var.ui_hosted_zone_id != ""
   api_has_domain = var.api_domain_name != "" && var.api_hosted_zone_id != ""
 }
@@ -89,6 +90,7 @@ resource "aws_cloudfront_distribution" "ui" {
   default_root_object = "index.html"
   price_class         = var.ui_cloudfront_price_class
   aliases             = local.ui_has_domain ? local.ui_domain_names : []
+  wait_for_deployment = false
 
   origin {
     domain_name              = aws_s3_bucket.ui.bucket_regional_domain_name
@@ -140,6 +142,7 @@ resource "aws_cloudfront_distribution" "ui" {
       cloudfront_default_certificate = true
     }
   }
+
 }
 
 data "aws_iam_policy_document" "ui_bucket" {
