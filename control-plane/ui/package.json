@@ -23,7 +23,7 @@
     "deploy:clean": "rm -rf node_modules/.cache node_modules && npm ci",
     "deploy:clean:env": "npm run deploy:clean && node ./scripts/deploy-with-env.js",
     "deploy:clean:https": "npm run deploy:clean:env",
-    "deploy:terraform": "bash ./scripts/deploy-from-terraform.sh",
+    "deploy:terraform": "bash ./scripts/deploy-ui-from-terraform.sh",
     "lint": "eslint \"src/**/*.{js,jsx}\"",
     "test": "react-scripts test --watchAll=false"
   },

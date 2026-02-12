@@ -88,6 +88,26 @@ CI/CD note:
 - `deploy/terraform/iam-ci/` provisions GitHub OIDC roles for CI (ECR + UI deploy).
   - See `deploy/terraform/iam-ci/README.md` for required GitHub secrets and variables.
 
+## AWS deploy scripts
+
+- `scripts/deploy-ai-training-to-aws.sh`
+  - Runs `terraform init` + guarded secret import + `terraform apply`.
+  - Runs `scripts/setup-github-ci.sh` to sync outputs into GitHub secrets/vars.
+  - Runs UI deploy using Terraform outputs.
+  - Prints a summary (API/UI URLs, ALB DNS, UI bucket, CloudFront ID).
+  - Run from anywhere; paths are resolved relative to the script location.
+  - Optional flags:
+    - `SKIP_GH_SETUP=1` to skip GitHub secrets/vars sync.
+    - `SKIP_UI_DEPLOY=1` to skip UI deployment.
+    - `POSTGRES_DSN_SECRET_NAME=...` to override the secret name.
+
+- `scripts/destroy-ai-training-aws.sh`
+  - Prompts for confirmation.
+  - Removes the Postgres DSN secret from Terraform state (so destroy can proceed).
+  - Empties the UI bucket (including versions + delete markers).
+  - Runs `terraform destroy`.
+  - Run from anywhere; paths are resolved relative to the script location.
+
 To check the terraform stack (AWS services for control plane):
 ```bash
 aws ecs describe-services \
