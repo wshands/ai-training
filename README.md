@@ -8,7 +8,7 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - data-plane/ – Job launcher + training job runtime for customer clusters
 - deploy/helm/ – Helm charts to deploy platform components
 - deploy/terraform/control-plane/ – Terraform skeleton for AWS infra
-- docker-compose.yml – Local dev stack (Kafka, Postgres, services)
+- docker-compose-kafka.yml – Local dev stack (Kafka, Postgres, services)
 - .github/workflows/ – CI workflows to build/push Docker images and deploy UI
 
 ## CI setup checklist
@@ -38,14 +38,14 @@ To start the cluster:
  minikube start
 ```
 
-To run the full stack locally with Docker Compose:
+To run the full stack locally with Docker Compose (Kafka):
 ```bash
-docker-compose up  --build --force-recreate
+docker compose -f docker-compose-kafka.yml up --build --force-recreate
 ```
 
 To bring down the local services:
 ```bash
-docker-compose down -v
+docker compose -f docker-compose-kafka.yml down -v
 ```
 
 To build the control plane images:
@@ -107,6 +107,11 @@ CI/CD note:
   - Empties the UI bucket (including versions + delete markers).
   - Runs `terraform destroy`.
   - Run from anywhere; paths are resolved relative to the script location.
+
+Postgres snapshot restore (optional):
+- `postgres_final_snapshot_enabled = true` will create a final snapshot on destroy.
+- `postgres_snapshot_identifier = "rds:..."` restores from a snapshot on apply.
+- When restoring from a snapshot, `db_name`, `username`, and `password` are ignored by AWS.
 
 To check the terraform stack (AWS services for control plane):
 ```bash

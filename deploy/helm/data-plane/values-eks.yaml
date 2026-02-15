@@ -9,5 +9,5 @@ jobLauncher:
   controlPlaneUrl: "https://api.aitrainops.com"
   #dataPlaneApiToken: "<data-plane-token>"
   #dataPlaneTenantId: "<tenant-id>"
-  dataPlaneApiToken: "data-plane-token"
+  dataPlaneApiToken: "local-dev-token"
   dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"

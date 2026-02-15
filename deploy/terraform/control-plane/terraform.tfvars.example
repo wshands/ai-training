@@ -24,6 +24,8 @@ postgres_dsn_secret_arn         = ""
 kafka_sasl_username_secret_arn  = ""
 kafka_sasl_password_secret_arn  = ""
 msk_cluster_arn                 = ""
+postgres_snapshot_identifier    = ""
+postgres_final_snapshot_enabled = true
 
 clerk_jwks_url            = "https://bursting-asp-1.clerk.accounts.dev/.well-known/jwks.json"
 clerk_issuer              = "https://bursting-asp-1.clerk.accounts.dev"

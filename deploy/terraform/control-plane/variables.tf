@@ -224,6 +224,18 @@ variable "postgres_username" {
   default     = "controlplane"
 }
 
+variable "postgres_snapshot_identifier" {
+  type        = string
+  description = "RDS snapshot identifier to restore from (optional)"
+  default     = ""
+}
+
+variable "postgres_final_snapshot_enabled" {
+  type        = bool
+  description = "Create a final snapshot on destroy"
+  default     = true
+}
+
 variable "ui_bucket_name" {
   type        = string
   description = "S3 bucket name for the UI (optional, auto-generated if empty)"
