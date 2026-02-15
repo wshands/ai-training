@@ -215,6 +215,12 @@ To start UI not using VSCode:
 Auth note (Clerk):
 - If password sign-in hangs on `/login/factor-two`, disable **Client Trust** in Clerk (User & authentication → Password) for dev.
 - Test emails (`+clerk_test`) use code `424242` for email verification flows.
+- Roles/permissions (RBAC):
+  - Create custom org roles in the Clerk dashboard (Organizations → Roles & Permissions → Role Sets):
+    - `operator` and `viewer` (Clerk stores them as `org:operator`, `org:viewer`).
+  - Note: the current codebase enforces **roles only** (admin/operator/viewer). Clerk permissions are not yet used.
+    - You can still define permissions in Clerk for future use, but they do not affect access today.
+  - Assign roles to users from the org members page.
 
 If using VSCode and Dockerfile.dev start debugging by picking the "UI + Attach backend (Docker)" (see .vscode/launch.json)
 
