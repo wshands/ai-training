@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAppAuth } from '../context/AppAuthContext';
+import { hasMinRole } from '../utils/roles';
 
 const NavItem = ({ to, children }) => (
   <NavLink
@@ -22,6 +24,8 @@ const Navbar = () => {
   const location = useLocation();
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
+  const { role, loading: roleLoading } = useAppAuth();
+  const canSubmit = hasMinRole(role, 'operator');
   const isAuthRoute =
     location.pathname.startsWith('/login') || location.pathname.startsWith('/register');
 
@@ -40,7 +44,16 @@ const Navbar = () => {
         </Link>
         <nav className="flex gap-2 items-center">
           <NavItem to="/app">Jobs</NavItem>
-          <NavItem to="/jobs/new">New Job</NavItem>
+          {canSubmit ? (
+            <NavItem to="/jobs/new">New Job</NavItem>
+          ) : (
+            <span
+              className="px-3 py-1 rounded-md text-sm font-medium text-slate-500 cursor-not-allowed"
+              title={roleLoading ? 'Loading permissions…' : 'Read-only role'}
+            >
+              New Job
+            </span>
+          )}
           {isSignedIn && (
             <span className="text-xs text-slate-300">
               {user?.primaryEmailAddress?.emailAddress ||

@@ -13,6 +13,7 @@ import OrgSelect from './pages/OrgSelect';
 import { setTokenGetter } from './auth';
 import AuthDebug from './components/AuthDebug';
 import Landing from './pages/Landing';
+import { AppAuthProvider } from './context/AppAuthContext';
 
 const AuthTokenBridge = () => {
   const { getToken } = useAuth();
@@ -110,7 +111,9 @@ const App = () => {
   return (
     <ClerkProvider publishableKey={publishableKey}>
       <AuthTokenBridge />
-      <AppRoutes />
+      <AppAuthProvider>
+        <AppRoutes />
+      </AppAuthProvider>
     </ClerkProvider>
   );
 };

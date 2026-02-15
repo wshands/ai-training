@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, handleApiError } from '../hooks/useApi';
 import Spinner from '../components/Spinner';
+import { useAppAuth } from '../context/AppAuthContext';
+import { hasMinRole } from '../utils/roles';
 
 const steps = ['Model & Dataset', 'Hyperparameters', 'Extras'];
 
@@ -21,6 +23,8 @@ const NewJobWizard = () => {
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
   const navigate = useNavigate();
+  const { role, loading: roleLoading } = useAppAuth();
+  const canSubmit = hasMinRole(role, 'operator');
 
   const updateField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const next = () => setStep((s) => Math.min(s + 1, steps.length - 1));
@@ -58,6 +62,11 @@ const NewJobWizard = () => {
   return (
     <div className="max-w-xl space-y-4">
       <h1 className="text-xl font-semibold">Launch Training Job</h1>
+      {!roleLoading && !canSubmit && (
+        <div className="text-sm text-amber-300 bg-amber-950/40 border border-amber-800 rounded p-3">
+          You have read-only access. Ask an admin to grant Operator permissions.
+        </div>
+      )}
 
       <div className="flex gap-2 text-xs">
         {steps.map((label, idx) => (
@@ -192,7 +201,7 @@ const NewJobWizard = () => {
         ) : (
           <button
             onClick={onSubmit}
-            disabled={submitting}
+            disabled={submitting || roleLoading || !canSubmit}
             className="px-4 py-1.5 rounded-md bg-emerald-500 text-sm font-medium hover:bg-emerald-400 disabled:opacity-60 flex items-center gap-2"
           >
             {submitting && <Spinner />}

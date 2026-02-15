@@ -1,9 +1,11 @@
 import React from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAppAuth } from '../context/AppAuthContext';
 
 const AuthDebug = () => {
   const { isLoaded, isSignedIn, sessionId, orgId } = useAuth();
   const { user } = useUser();
+  const { role, roleRaw } = useAppAuth();
   if (process.env.NODE_ENV === 'production') return null;
 
   return (
@@ -13,6 +15,8 @@ const AuthDebug = () => {
       <div>signed in: {String(isSignedIn)}</div>
       <div>session id: {sessionId || 'none'}</div>
       <div>org id: {orgId || 'none'}</div>
+      <div>role: {role || 'none'}</div>
+      <div>raw role: {roleRaw || 'none'}</div>
       <div>user id: {user?.id || 'none'}</div>
       <div>email: {user?.primaryEmailAddress?.emailAddress || 'none'}</div>
     </div>

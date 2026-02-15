@@ -9,6 +9,8 @@ import Spinner from '../components/Spinner';
 import { useClerkToken } from '../hooks/useClerkToken';
 import { EventType } from '../constants/eventTypes';
 import { JobState, jobStateFromEventType } from '../constants/jobStates';
+import { useAppAuth } from '../context/AppAuthContext';
+import { hasMinRole } from '../utils/roles';
 import {
   LineChart,
   Line,
@@ -81,6 +83,8 @@ const JobDetail = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyOldestId, setHistoryOldestId] = useState(null);
+  const { role, loading: roleLoading } = useAppAuth();
+  const canOperate = hasMinRole(role, 'operator');
 
   const historyPageSize = 500;
 
@@ -311,7 +315,7 @@ const JobDetail = () => {
                 type="button"
                 className="px-3 py-1.5 rounded-md bg-rose-500 text-sm font-medium hover:bg-rose-400 disabled:opacity-50"
                 onClick={handleCancel}
-                disabled={retrying}
+                disabled={retrying || roleLoading || !canOperate}
               >
                 Cancel
               </button>
@@ -321,13 +325,18 @@ const JobDetail = () => {
                 type="button"
                 className="px-3 py-1.5 rounded-md bg-sky-500 text-sm font-medium hover:bg-sky-400 disabled:opacity-50"
                 onClick={handleRetry}
-                disabled={retrying}
+                disabled={retrying || roleLoading || !canOperate}
               >
                 {retrying ? 'Retrying…' : 'Retry'}
               </button>
             )}
           </div>
         </div>
+        {!roleLoading && !canOperate && (
+          <div className="mt-2 text-xs text-amber-300">
+            Read-only role — ask an admin for Operator access to cancel or retry jobs.
+          </div>
+        )}
         <JobStatusBadge status={job.status} />
         <div className="mt-2 text-xs text-slate-400">
           Model:{' '}

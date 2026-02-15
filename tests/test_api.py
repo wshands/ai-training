@@ -60,6 +60,27 @@ def test_list_jobs_returns_summaries(client, monkeypatch) -> None:
     assert data[1]["job_id"] == "job-2"
 
 
+def test_submit_job_requires_operator(client) -> None:
+    main_mod.app.dependency_overrides[main_mod.get_current_identity] = lambda: AuthContext(
+        user_id="user-1",
+        tenant_id="tenant-1",
+        email="test@example.com",
+        role="org:viewer",
+    )
+    resp = client.post(
+        "/jobs/train",
+        json={
+            "model_id": "m1",
+            "dataset_id": "d1",
+            "epochs": 1,
+            "batch_size": 8,
+            "lr": 0.01,
+            "distributed": False,
+        },
+    )
+    assert resp.status_code == 403
+
+
 def test_latest_events_no_state(client, monkeypatch) -> None:
     async def fake_fetch_latest(tenant_id: str, job_id: str, limit: int):
         assert tenant_id == "tenant-1"

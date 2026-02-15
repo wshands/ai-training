@@ -117,6 +117,54 @@ class AuthContext(BaseModel):
     tenant_id: str
     email: Optional[str] = None
     role: Optional[str] = None
+    role_raw: Optional[str] = None
+
+
+class OrgRole(str, Enum):
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
+
+
+ROLE_ALIASES = {
+    "org:admin": OrgRole.ADMIN,
+    "org:operator": OrgRole.OPERATOR,
+    "org:viewer": OrgRole.VIEWER,
+    # Clerk default role for org members; map to operator for MVP workflows.
+    "org:member": OrgRole.OPERATOR,
+    # Accept already-normalized values.
+    "admin": OrgRole.ADMIN,
+    "operator": OrgRole.OPERATOR,
+    "viewer": OrgRole.VIEWER,
+}
+
+ROLE_ORDER = {
+    OrgRole.VIEWER: 1,
+    OrgRole.OPERATOR: 2,
+    OrgRole.ADMIN: 3,
+}
+
+
+def normalize_role(raw_role: Optional[str]) -> OrgRole:
+    if not raw_role:
+        return OrgRole.VIEWER
+    return ROLE_ALIASES.get(raw_role, OrgRole.VIEWER)
+
+
+def require_min_role(min_role: OrgRole):
+    def checker(identity: AuthContext = Depends(get_current_identity)) -> AuthContext:
+        role = normalize_role(identity.role)
+        if ROLE_ORDER[role] < ROLE_ORDER[min_role]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+        return identity
+
+    return checker
+
+
+def enforce_min_role(identity: AuthContext, min_role: OrgRole) -> None:
+    role = normalize_role(identity.role)
+    if ROLE_ORDER[role] < ROLE_ORDER[min_role]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
 
 
 class DataPlaneContext(BaseModel):
@@ -209,11 +257,15 @@ def decode_clerk_token(token: str) -> AuthContext:
     if not user_id or not tenant_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
+    raw_role = payload.get("org_role")
+    normalized_role = normalize_role(raw_role)
+
     return AuthContext(
         user_id=user_id,
         tenant_id=tenant_id,
         email=payload.get("email") or payload.get("email_address"),
-        role=payload.get("org_role"),
+        role=normalized_role.value,
+        role_raw=raw_role,
     )
 
 
@@ -350,7 +402,7 @@ async def me(identity: AuthContext = Depends(get_current_identity)):
 @app.post("/jobs/train")
 async def submit_training_job(
     req: TrainJobRequest,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
 ):
     """Create a new job record and emit a submission event."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
@@ -400,7 +452,7 @@ async def submit_training_job(
 @app.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: str,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
 ):
     """Emit a cancellation event for a job."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
@@ -429,7 +481,7 @@ async def cancel_job(
 @app.post("/jobs/{job_id}/retry")
 async def retry_job(
     job_id: str,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
 ):
     """Create a new job based on a previous job's config."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
@@ -482,7 +534,7 @@ async def retry_job(
 async def list_jobs(
     limit: int = DEFAULT_JOBS_LIMIT,
     offset: int = 0,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.VIEWER)),
 ):
     """List job summaries for the caller's tenant."""
     tenant_id = identity.tenant_id
@@ -514,7 +566,7 @@ async def list_jobs(
 @app.get("/jobs/{job_id}", response_model=JobSummary)
 async def get_job(
     job_id: str,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.VIEWER)),
 ) -> JobSummary:
     """Return a single job summary for the tenant."""
     tenant_id = identity.tenant_id
@@ -698,6 +750,11 @@ async def ws_job_stream(websocket: WebSocket, job_id: str):
     except HTTPException:
         await websocket.close(code=1008)
         return
+    try:
+        enforce_min_role(identity, OrgRole.VIEWER)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
 
     row = await fetch_job(identity.tenant_id, job_id)
     if not row:
@@ -763,6 +820,11 @@ async def ws_jobs_stream(websocket: WebSocket):
     await websocket.accept()
     try:
         identity = get_ws_identity(websocket)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    try:
+        enforce_min_role(identity, OrgRole.VIEWER)
     except HTTPException:
         await websocket.close(code=1008)
         return
@@ -853,7 +915,7 @@ async def get_job_events(
     since_id: int = 0,
     before_id: int | None = None,
     limit: int = DEFAULT_EVENTS_LIMIT,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.VIEWER)),
 ):
     """Return paginated job events without replaying state."""
     tenant_id = identity.tenant_id
@@ -881,7 +943,7 @@ async def get_job_events(
 async def get_latest_job_events(
     job_id: str,
     limit: int = DEFAULT_EVENTS_LIMIT,
-    identity: AuthContext = Depends(get_current_identity),
+    identity: AuthContext = Depends(require_min_role(OrgRole.VIEWER)),
 ):
     """Return the latest events for a job without history replay."""
     tenant_id = identity.tenant_id

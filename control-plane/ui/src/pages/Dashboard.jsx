@@ -7,6 +7,8 @@ import { useClerkToken } from '../hooks/useClerkToken';
 import JobStatusBadge from '../components/JobStatusBadge';
 import Spinner from '../components/Spinner';
 import { jobStateFromEventType } from '../constants/jobStates';
+import { useAppAuth } from '../context/AppAuthContext';
+import { hasMinRole } from '../utils/roles';
 
 const Dashboard = () => {
   const pageSize = 50;
@@ -16,6 +18,8 @@ const Dashboard = () => {
   const [err, setErr] = useState('');
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
+  const { role, loading: roleLoading } = useAppAuth();
+  const canSubmit = hasMinRole(role, 'operator');
 
   const fetchJobs = useCallback(
     async (nextOffset = 0) => {
@@ -76,13 +80,28 @@ const Dashboard = () => {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Training Jobs</h1>
-        <Link
-          to="/jobs/new"
-          className="px-3 py-1.5 rounded-md bg-sky-500 text-sm font-medium hover:bg-sky-400"
-        >
-          + New Job
-        </Link>
+        {canSubmit ? (
+          <Link
+            to="/jobs/new"
+            className="px-3 py-1.5 rounded-md bg-sky-500 text-sm font-medium hover:bg-sky-400"
+          >
+            + New Job
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="px-3 py-1.5 rounded-md bg-slate-700 text-sm font-medium text-slate-300 opacity-70 cursor-not-allowed"
+            disabled
+          >
+            + New Job
+          </button>
+        )}
       </div>
+      {!roleLoading && !canSubmit && (
+        <div className="text-xs text-amber-300 mb-3">
+          Read-only role — you can view jobs but cannot submit new ones.
+        </div>
+      )}
 
       {loading && (
         <div className="flex items-center gap-2 text-slate-400">

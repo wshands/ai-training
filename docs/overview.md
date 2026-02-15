@@ -33,6 +33,7 @@ AiTrainOps is a control‑plane + data‑plane platform for running GPU training
 
 ## Security model
 - **User auth** via Clerk JWTs (org‑scoped tenancy).
+- **RBAC** via Clerk org roles (admin/operator/viewer) enforced at the API and UI.
 - **Data‑plane auth** via hashed, DB‑stored API tokens (admin‑minted).
 - **Tenant isolation** enforced in control‑plane and data‑plane endpoints.
 - **No data plane access to event bus**; only HTTPS to the control‑plane API.
@@ -59,7 +60,6 @@ This architecture gives customers the benefits of a SaaS control‑plane without
 - Data‑plane job launcher for Kubernetes
 
 ## What’s next (roadmap)
-- Fine‑grained RBAC
 - Token rotation + lifecycle policies
 - Cost/GPU usage insights
 - Advanced retry/queue policies
