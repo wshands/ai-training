@@ -63,6 +63,7 @@ from common.ai_training_common.retry import (
 )
 from common.ai_training_common.config import (
     EVENT_BUS_PROVIDER,
+    EVENT_RETENTION_DAYS,
     JOB_MAX_RETRIES,
     JOB_RETRY_BASE_SECONDS,
     JOB_RETRY_MAX_SECONDS,
@@ -83,7 +84,6 @@ POSTGRES_DSN = os.environ.get(
     "postgresql://postgres:postgres@postgres:5432/controlplane",
 )
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-EVENT_RETENTION_DAYS = int(os.environ.get("EVENT_RETENTION_DAYS", "30"))
 EVENT_PRUNE_INTERVAL_SECONDS = int(os.environ.get("EVENT_PRUNE_INTERVAL_SECONDS", "3600"))
 KAFKA_AUTO_CREATE_TOPICS = os.environ.get("KAFKA_AUTO_CREATE_TOPICS", "true").lower() in ("1", "true", "yes")
 KAFKA_TOPIC_PARTITIONS = int(os.environ.get("KAFKA_TOPIC_PARTITIONS", "3"))
@@ -712,10 +712,6 @@ async def publish_ws_event(r: redis.Redis, out: JobEventOut) -> None:
 
 async def prune_old_events_loop(dsn: str) -> None:
     """Periodically prune old job events based on retention settings."""
-    if EVENT_RETENTION_DAYS <= 0:
-        logger.info("Event retention disabled; skipping prune loop")
-        return
-
     conn = await asyncpg.connect(dsn)
     await configure_json_codecs(conn)
     try:
@@ -723,10 +719,21 @@ async def prune_old_events_loop(dsn: str) -> None:
             try:
                 result = await conn.execute(
                     """
-                    DELETE FROM job_events
-                    WHERE event_time < now() - ($1::text || ' days')::interval
+                    WITH retention AS (
+                      SELECT
+                        t.tenant_id,
+                        COALESCE(s.event_retention_days, $1)::int AS days
+                      FROM (SELECT DISTINCT tenant_id FROM job_events) AS t
+                      LEFT JOIN org_settings AS s
+                        ON s.tenant_id = t.tenant_id
+                      WHERE COALESCE(s.event_retention_days, $1) > 0
+                    )
+                    DELETE FROM job_events AS e
+                    USING retention AS r
+                    WHERE e.tenant_id = r.tenant_id
+                      AND e.event_time < now() - (r.days::text || ' days')::interval
                     """,
-                    str(EVENT_RETENTION_DAYS),
+                    int(EVENT_RETENTION_DAYS),
                 )
                 logger.info("Pruned old job_events: %s", result)
             except Exception:

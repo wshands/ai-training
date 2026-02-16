@@ -170,3 +170,15 @@ curl -X DELETE -H "Authorization: Bearer <CONTROL_PLANE_ADMIN_TOKEN>" \
 - Tenant isolation: each data-plane is pinned to a tenant
 - Safe rotation: tokens can be minted and revoked without downtime
 - Auditability: last-used timestamps and prefixes are stored
+
+## Admin UI (role-based)
+
+For human admins, the control-plane exposes tenant-scoped endpoints guarded by
+RBAC (Clerk org role `admin`). These are used by the Admin UI:
+
+- `GET /admin/data-plane-tokens`
+- `POST /admin/data-plane-tokens`
+- `DELETE /admin/data-plane-tokens/{token_id}`
+
+These endpoints only operate on the caller’s tenant and do not require the
+control-plane admin token.

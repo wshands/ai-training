@@ -27,6 +27,10 @@ The helper script reads Terraform outputs and pushes them into GitHub:
 
 This keeps the workflows fully automated without manual copying.
 
+Run it once when you first set up CI. Re-run it after any Terraform
+destroy/apply that changes IAM role ARNs, UI bucket name, or CloudFront
+distribution ID.
+
 ## 3) GitHub Actions workflows (`.github/workflows`)
 Two workflows consume those values:
 

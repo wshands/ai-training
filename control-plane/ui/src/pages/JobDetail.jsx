@@ -83,6 +83,9 @@ const JobDetail = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyOldestId, setHistoryOldestId] = useState(null);
+  const [retentionDays, setRetentionDays] = useState(null);
+  const [retentionSource, setRetentionSource] = useState('default');
+  const [retentionDefault, setRetentionDefault] = useState(null);
   const { role, loading: roleLoading } = useAppAuth();
   const canOperate = hasMinRole(role, 'operator');
 
@@ -150,6 +153,30 @@ const JobDetail = () => {
       cancelled = true;
     };
   }, [applyHistory, historyPageSize, jobId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRetention = async () => {
+      try {
+        const res = await api.get('/settings/retention');
+        if (!cancelled) {
+          setRetentionDays(res.data?.event_retention_days ?? null);
+          setRetentionSource(res.data?.source || 'default');
+          setRetentionDefault(res.data?.default_event_retention_days ?? null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setRetentionDays(null);
+          setRetentionSource('default');
+          setRetentionDefault(null);
+        }
+      }
+    };
+    loadRetention();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadOlderEvents = useCallback(async () => {
     if (!historyOldestId || historyLoading) return;
@@ -229,6 +256,18 @@ const JobDetail = () => {
     }
     setHistoryEvents((prev) => [...prev, ev]);
   };
+
+  const terminalStates = [JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED, JobState.PREEMPTED];
+  const isTerminal = job && terminalStates.includes(job.status);
+  const eventsEmpty = historyEvents.length === 0;
+  let logsEmptyMessage = 'Waiting for logs…';
+  if (isTerminal && eventsEmpty) {
+    if (retentionDays && retentionDays > 0) {
+      logsEmptyMessage = `Logs expired (retained ${retentionDays} days).`;
+    } else {
+      logsEmptyMessage = 'No logs available for this job.';
+    }
+  }
 
   useWebSocket(
     getWsUrl,
@@ -379,6 +418,23 @@ const JobDetail = () => {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold">Logs</h2>
+            <div className="text-xs text-slate-400">
+              {retentionDays === null
+                ? 'Retention: unknown'
+                : retentionDays === 0
+                ? 'Retention: disabled'
+                : `Retention: ${retentionDays} days`}
+              {retentionSource === 'org' && (
+                <span className="ml-2 text-slate-500">(org override)</span>
+              )}
+              {retentionSource === 'default' &&
+                retentionDefault !== null &&
+                retentionDefault !== retentionDays && (
+                  <span className="ml-2 text-slate-500">
+                    (default {retentionDefault} days)
+                  </span>
+                )}
+            </div>
             {historyHasMore && (
               <button
                 type="button"
@@ -390,7 +446,7 @@ const JobDetail = () => {
               </button>
             )}
           </div>
-          <LogPanel lines={logs} />
+          <LogPanel lines={logs} emptyMessage={logsEmptyMessage} />
         </div>
         <div>
           <h2 className="text-sm font-semibold mb-2">Metrics</h2>

@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 import uuid
 import time
 import json
+import io
+import csv
 import secrets
 import hashlib
 import hmac
@@ -40,8 +42,10 @@ import redis.asyncio as redis
 
 from datetime import datetime
 from enum import Enum
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from kubernetes import client, config as k8s_config
@@ -57,6 +61,7 @@ from common.ai_training_common.config import (
     TRAINING_IMAGE,
     CUSTOMER_KUBECONFIG,
     REDIS_URL,
+    EVENT_RETENTION_DAYS,
     CLERK_JWKS_URL,
     CLERK_ISSUER,
     CLERK_AUDIENCE,
@@ -83,6 +88,9 @@ from common.ai_training_common.db import (
     list_data_plane_tokens as list_data_plane_tokens_db,
     revoke_data_plane_token as revoke_data_plane_token_db,
     mark_data_plane_token_used,
+    get_event_retention_days,
+    set_event_retention_days,
+    fetch_audit_events,
 )
 from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
 
@@ -381,6 +389,16 @@ class DataPlaneTokenRequest(BaseModel):
     tenant_id: str
     token: Optional[str] = None
     token_id: Optional[str] = None
+    token_label: Optional[str] = None
+
+
+class DataPlaneTokenSelfRequest(BaseModel):
+    token: Optional[str] = None
+    token_label: Optional[str] = None
+
+
+class RetentionSettingsUpdate(BaseModel):
+    event_retention_days: Optional[int] = Field(default=None, ge=0, le=3650)
 
 
 def load_k8s_clients():
@@ -408,6 +426,23 @@ async def health():
 async def me(identity: AuthContext = Depends(get_current_identity)):
     """Return the caller's auth context for debugging."""
     return identity
+
+
+@app.get("/settings/retention")
+async def retention_settings(identity: AuthContext = Depends(require_min_role(OrgRole.VIEWER))):
+    """Expose event retention settings for UI visibility."""
+    override = await get_event_retention_days(identity.tenant_id)
+    if override is not None:
+        return {
+            "event_retention_days": override,
+            "default_event_retention_days": EVENT_RETENTION_DAYS,
+            "source": "org",
+        }
+    return {
+        "event_retention_days": EVENT_RETENTION_DAYS,
+        "default_event_retention_days": EVENT_RETENTION_DAYS,
+        "source": "default",
+    }
 
 
 @app.post("/jobs/train")
@@ -705,6 +740,7 @@ async def list_data_plane_tokens(
             {
                 "token_id": str(row["id"]),
                 "token_prefix": row["token_prefix"],
+                "token_label": row["token_label"],
                 "created_at": row["created_at"].isoformat() if row["created_at"] else None,
                 "last_used_at": row["last_used_at"].isoformat() if row["last_used_at"] else None,
                 "revoked_at": row["revoked_at"].isoformat() if row["revoked_at"] else None,
@@ -724,12 +760,13 @@ async def mint_data_plane_token(
     token = req.token or secrets.token_urlsafe(32)
     token_hash = _hash_data_plane_token(token)
     token_prefix = token[:8]
-    row = await insert_data_plane_token(req.tenant_id, token_prefix, token_hash)
+    row = await insert_data_plane_token(req.tenant_id, token_prefix, token_hash, req.token_label)
     return {
         "tenant_id": req.tenant_id,
         "token": token,
         "token_id": str(row["id"]),
         "token_prefix": row["token_prefix"],
+        "token_label": row["token_label"],
     }
 
 
@@ -746,6 +783,145 @@ async def revoke_data_plane_token(
         token_id=req.token_id,
     )
     return {"tenant_id": req.tenant_id, "revoked": revoked}
+
+
+@app.get("/admin/data-plane-tokens")
+async def list_self_data_plane_tokens(
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """List data-plane tokens for the current tenant (admin role)."""
+    rows = await list_data_plane_tokens_db(identity.tenant_id)
+    tokens = []
+    for row in rows:
+        tokens.append(
+            {
+                "token_id": str(row["id"]),
+                "token_prefix": row["token_prefix"],
+                "token_label": row["token_label"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "last_used_at": row["last_used_at"].isoformat() if row["last_used_at"] else None,
+                "revoked_at": row["revoked_at"].isoformat() if row["revoked_at"] else None,
+            }
+        )
+    return {"tenant_id": identity.tenant_id, "tokens": tokens}
+
+
+@app.post("/admin/data-plane-tokens")
+async def mint_self_data_plane_token(
+    req: DataPlaneTokenSelfRequest,
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Mint a data-plane token for the current tenant (admin role)."""
+    token = req.token or secrets.token_urlsafe(32)
+    token_hash = _hash_data_plane_token(token)
+    token_prefix = token[:8]
+    row = await insert_data_plane_token(identity.tenant_id, token_prefix, token_hash, req.token_label)
+    return {
+        "tenant_id": identity.tenant_id,
+        "token_id": str(row["id"]),
+        "token_prefix": row["token_prefix"],
+        "token_label": row["token_label"],
+        "token": token,
+    }
+
+
+@app.delete("/admin/data-plane-tokens/{token_id}")
+async def revoke_self_data_plane_token(
+    token_id: str,
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Revoke a data-plane token for the current tenant (admin role)."""
+    revoked = await revoke_data_plane_token_db(
+        identity.tenant_id,
+        token_id=token_id,
+    )
+    return {"tenant_id": identity.tenant_id, "revoked": revoked}
+
+
+@app.get("/admin/settings/retention")
+async def get_retention_settings_admin(
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Return retention settings for the current tenant (admin)."""
+    override = await get_event_retention_days(identity.tenant_id)
+    if override is not None:
+        return {
+            "event_retention_days": override,
+            "default_event_retention_days": EVENT_RETENTION_DAYS,
+            "source": "org",
+        }
+    return {
+        "event_retention_days": EVENT_RETENTION_DAYS,
+        "default_event_retention_days": EVENT_RETENTION_DAYS,
+        "source": "default",
+    }
+
+
+@app.put("/admin/settings/retention")
+async def update_retention_settings_admin(
+    req: RetentionSettingsUpdate,
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Update retention settings for the current tenant (admin)."""
+    await set_event_retention_days(identity.tenant_id, req.event_retention_days)
+    override = await get_event_retention_days(identity.tenant_id)
+    if override is not None:
+        return {
+            "event_retention_days": override,
+            "default_event_retention_days": EVENT_RETENTION_DAYS,
+            "source": "org",
+        }
+    return {
+        "event_retention_days": EVENT_RETENTION_DAYS,
+        "default_event_retention_days": EVENT_RETENTION_DAYS,
+        "source": "default",
+    }
+
+
+@app.get("/admin/audit/export")
+async def audit_export(
+    format: str = Query("json", pattern="^(json|csv)$"),
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Export job + event audit data for the current tenant."""
+    rows = await fetch_audit_events(identity.tenant_id)
+    payload = [dict(row) for row in rows]
+    if format == "csv":
+        output = io.StringIO()
+        fieldnames = [
+            "event_id",
+            "event_time",
+            "event_type",
+            "job_id",
+            "tenant_id",
+            "user_id",
+            "seq",
+            "producer",
+            "job_status",
+            "job_created_at",
+            "job_submitted_at",
+            "job_updated_at",
+            "job_config",
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in payload:
+            row = dict(row)
+            row["event_time"] = row["event_time"].isoformat() if row.get("event_time") else ""
+            row["job_created_at"] = row["job_created_at"].isoformat() if row.get("job_created_at") else ""
+            row["job_submitted_at"] = row["job_submitted_at"].isoformat() if row.get("job_submitted_at") else ""
+            row["job_updated_at"] = row["job_updated_at"].isoformat() if row.get("job_updated_at") else ""
+            row["job_config"] = json.dumps(row.get("job_config") or {})
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
+        csv_bytes = output.getvalue().encode("utf-8")
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=audit-export.csv"},
+        )
+    return JSONResponse(
+        content=jsonable_encoder({"tenant_id": identity.tenant_id, "events": payload})
+    )
 
 
 @app.websocket("/ws/jobs/{job_id}")

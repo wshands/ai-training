@@ -242,11 +242,12 @@ def test_internal_jobs_rejects_invalid_db_token(client, monkeypatch) -> None:
 
 def test_admin_mint_and_list_tokens(client, monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "CONTROL_PLANE_ADMIN_TOKEN", "admin-token")
-    async def fake_insert(tenant_id: str, token_prefix: str, token_hash: str):
+    async def fake_insert(tenant_id: str, token_prefix: str, token_hash: str, token_label: str | None = None):
         return {
             "id": "token-1",
             "tenant_id": tenant_id,
             "token_prefix": token_prefix,
+            "token_label": token_label,
             "created_at": None,
             "last_used_at": None,
             "revoked_at": None,
@@ -257,6 +258,7 @@ def test_admin_mint_and_list_tokens(client, monkeypatch) -> None:
                 "id": "token-1",
                 "tenant_id": "tenant-1",
                 "token_prefix": "abc12345",
+                "token_label": "cluster-a",
                 "created_at": None,
                 "last_used_at": None,
                 "revoked_at": None,

@@ -124,10 +124,16 @@ async def init_db():
                 tenant_id TEXT NOT NULL,
                 token_prefix TEXT NOT NULL,
                 token_hash TEXT NOT NULL,
+                token_label TEXT,
                 created_at TIMESTAMP NOT NULL DEFAULT now(),
                 last_used_at TIMESTAMP,
                 revoked_at TIMESTAMP
             );
+            """)
+
+            await conn.execute("""
+            ALTER TABLE data_plane_tokens
+                ADD COLUMN IF NOT EXISTS token_label TEXT;
             """)
 
             await conn.execute("""
@@ -143,6 +149,14 @@ async def init_db():
             await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_data_plane_tokens_tenant_active
             ON data_plane_tokens(tenant_id, revoked_at);
+            """)
+
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS org_settings (
+                tenant_id TEXT PRIMARY KEY,
+                event_retention_days INT,
+                updated_at TIMESTAMP NOT NULL DEFAULT now()
+            );
             """)
 
     return pool
@@ -462,7 +476,7 @@ async def fetch_data_plane_token(tenant_id: str, token_hash: str) -> Optional[as
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT id, tenant_id, token_prefix, token_hash, created_at, last_used_at, revoked_at
+            SELECT id, tenant_id, token_prefix, token_hash, token_label, created_at, last_used_at, revoked_at
             FROM data_plane_tokens
             WHERE tenant_id = $1
               AND token_hash = $2
@@ -483,7 +497,7 @@ async def list_data_plane_tokens(tenant_id: Optional[str] = None) -> List[asyncp
         if tenant_id:
             rows = await conn.fetch(
                 """
-                SELECT id, tenant_id, token_prefix, token_hash, created_at, last_used_at, revoked_at
+                SELECT id, tenant_id, token_prefix, token_hash, token_label, created_at, last_used_at, revoked_at
                 FROM data_plane_tokens
                 WHERE tenant_id = $1
                 ORDER BY created_at DESC
@@ -493,7 +507,7 @@ async def list_data_plane_tokens(tenant_id: Optional[str] = None) -> List[asyncp
         else:
             rows = await conn.fetch(
                 """
-                SELECT id, tenant_id, token_prefix, token_hash, created_at, last_used_at, revoked_at
+                SELECT id, tenant_id, token_prefix, token_hash, token_label, created_at, last_used_at, revoked_at
                 FROM data_plane_tokens
                 ORDER BY tenant_id ASC, created_at DESC
                 """
@@ -501,10 +515,82 @@ async def list_data_plane_tokens(tenant_id: Optional[str] = None) -> List[asyncp
     return rows
 
 
+async def get_event_retention_days(tenant_id: str) -> Optional[int]:
+    """Fetch per-tenant event retention override (days)."""
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT event_retention_days
+            FROM org_settings
+            WHERE tenant_id = $1
+            """,
+            tenant_id,
+        )
+    return row["event_retention_days"] if row else None
+
+
+async def set_event_retention_days(tenant_id: str, days: Optional[int]) -> None:
+    """Set per-tenant event retention override (days)."""
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO org_settings(tenant_id, event_retention_days, updated_at)
+            VALUES ($1, $2, now())
+            ON CONFLICT (tenant_id)
+            DO UPDATE SET event_retention_days = EXCLUDED.event_retention_days,
+                          updated_at = now()
+            """,
+            tenant_id,
+            days,
+        )
+
+
+async def fetch_audit_events(tenant_id: str) -> List[asyncpg.Record]:
+    """Fetch job event audit rows joined with job/job_state metadata."""
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+              e.event_id,
+              e.event_time,
+              e.event_type,
+              e.job_id,
+              e.tenant_id,
+              e.user_id,
+              e.seq,
+              e.producer,
+              j.created_at AS job_created_at,
+              j.submitted_at AS job_submitted_at,
+              j.updated_at AS job_updated_at,
+              j.config AS job_config,
+              COALESCE(js.last_state, 'SUBMITTED') AS job_status
+            FROM job_events AS e
+            LEFT JOIN jobs AS j
+              ON j.job_id = e.job_id AND j.tenant_id = e.tenant_id
+            LEFT JOIN job_state AS js
+              ON js.job_id = e.job_id AND js.tenant_id = e.tenant_id
+            WHERE e.tenant_id = $1
+            ORDER BY e.event_time ASC, e.id ASC
+            """,
+            tenant_id,
+        )
+    return rows
+
+
 async def insert_data_plane_token(
     tenant_id: str,
     token_prefix: str,
     token_hash: str,
+    token_label: Optional[str] = None,
 ) -> asyncpg.Record:
     """Insert a data-plane token (idempotent if token_hash exists)."""
     global pool
@@ -513,7 +599,7 @@ async def insert_data_plane_token(
     async with pool.acquire() as conn:
         existing = await conn.fetchrow(
             """
-            SELECT id, tenant_id, token_prefix, token_hash, created_at, last_used_at, revoked_at
+            SELECT id, tenant_id, token_prefix, token_hash, token_label, created_at, last_used_at, revoked_at
             FROM data_plane_tokens
             WHERE token_hash = $1
             """,
@@ -522,6 +608,16 @@ async def insert_data_plane_token(
         if existing:
             if existing["tenant_id"] != tenant_id:
                 raise ValueError("Token already exists for a different tenant")
+            if token_label is not None:
+                await conn.execute(
+                    """
+                    UPDATE data_plane_tokens
+                    SET token_label = $1
+                    WHERE id = $2
+                    """,
+                    token_label,
+                    existing["id"],
+                )
             if existing["revoked_at"] is not None:
                 await conn.execute(
                     """
@@ -533,7 +629,7 @@ async def insert_data_plane_token(
                 )
             return await conn.fetchrow(
                 """
-                SELECT id, tenant_id, token_prefix, token_hash, created_at, last_used_at, revoked_at
+                SELECT id, tenant_id, token_prefix, token_hash, token_label, created_at, last_used_at, revoked_at
                 FROM data_plane_tokens
                 WHERE id = $1
                 """,
@@ -542,14 +638,15 @@ async def insert_data_plane_token(
         token_id = uuid.uuid4()
         row = await conn.fetchrow(
             """
-            INSERT INTO data_plane_tokens(id, tenant_id, token_prefix, token_hash)
-            VALUES($1, $2, $3, $4)
-            RETURNING id, tenant_id, token_prefix, token_hash, created_at, last_used_at, revoked_at
+            INSERT INTO data_plane_tokens(id, tenant_id, token_prefix, token_hash, token_label)
+            VALUES($1, $2, $3, $4, $5)
+            RETURNING id, tenant_id, token_prefix, token_hash, token_label, created_at, last_used_at, revoked_at
             """,
             token_id,
             tenant_id,
             token_prefix,
             token_hash,
+            token_label,
         )
     if row is None:
         raise RuntimeError("Failed to insert data-plane token")

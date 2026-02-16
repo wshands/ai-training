@@ -26,6 +26,7 @@ const Navbar = () => {
   const { user } = useUser();
   const { role, loading: roleLoading } = useAppAuth();
   const canSubmit = hasMinRole(role, 'operator');
+  const isAdmin = hasMinRole(role, 'admin');
   const isAuthRoute =
     location.pathname.startsWith('/login') || location.pathname.startsWith('/register');
   const showAppLinks = isSignedIn && !isAuthRoute;
@@ -56,6 +57,7 @@ const Navbar = () => {
                   New Job
                 </span>
               )}
+              {isAdmin && <NavItem to="/admin/tokens">Admin</NavItem>}
             </>
           )}
           {showAuthLinks && (
