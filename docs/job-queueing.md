@@ -44,10 +44,11 @@ The event-processor schedules retries when it consumes a `JOB_FAILED` event.
 
 Rules:
 
-- If `retry_count < max_retries`, the job is rescheduled
-- `next_run_at` is set using exponential backoff
-- `job_state` is set to `RETRYING`
-- The job becomes available to claim once `next_run_at` is reached
+- If `retry_count < max_retries`, the event-processor **creates a new job id**
+  (a fresh attempt) using the same config.
+- The new job is scheduled with `next_run_at` using exponential backoff.
+- The original job remains `FAILED` for audit history.
+- The new job becomes available to claim once `next_run_at` is reached.
 
 If retries are exhausted, the job remains `FAILED`.
 
@@ -60,6 +61,13 @@ The `jobs` table includes:
 - `next_run_at`: time the job becomes claimable
 - `locked_by`: agent id that claimed the job
 - `locked_at`: time the job was claimed
+
+## Job config storage
+
+`jobs.config` is stored as JSONB and **must be a JSON object** (dict). The
+control-plane and event-processor reject non-object configs, and the database
+enforces this with a check constraint. If you have old dev rows where config
+was stored as a JSON string, drop/recreate the DB or truncate the `jobs` table.
 
 ## Config knobs
 
@@ -77,4 +85,3 @@ Environment variables:
 3) Launcher creates a Kubernetes Job.
 4) Training job emits `JOB_STARTED`, `JOB_COMPLETED`, `JOB_FAILED`, etc.
 5) Event-processor updates state and schedules retries if needed.
-

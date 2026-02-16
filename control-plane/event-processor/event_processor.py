@@ -53,10 +53,14 @@ from aiokafka.errors import (
     UnknownTopicOrPartitionError,
 )
 
-from common.ai_training_common.db import init_db
+from common.ai_training_common.db import init_db, configure_json_codecs
 from common.ai_training_common.state_machine import JobState, apply_event
-from common.ai_training_common.events import JobEventIn, JobEventOut
+from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
 from common.ai_training_common.kafka import build_kafka_config
+from common.ai_training_common.retry import (
+    compute_retry_delay_seconds,
+    build_retry_job_config,
+)
 from common.ai_training_common.config import (
     EVENT_BUS_PROVIDER,
     JOB_MAX_RETRIES,
@@ -102,9 +106,13 @@ def _ts_to_pg_seconds(ts: Optional[int | float]) -> Optional[float]:
     return ts_f / 1000.0 if ts_f >= 1_000_000_000_000 else ts_f
 
 
-def _compute_retry_delay_seconds(retry_count: int) -> int:
-    delay = JOB_RETRY_BASE_SECONDS * (2 ** max(retry_count, 0))
-    return int(min(delay, JOB_RETRY_MAX_SECONDS))
+def _require_config_dict(raw_config: Any, job_id: str) -> Dict[str, Any]:
+    if raw_config is None:
+        return {}
+    if isinstance(raw_config, dict):
+        return raw_config
+    raise RuntimeError(f"jobs.config for {job_id} is not a JSON object")
+
 
 async def wait_for_postgres(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
     """Wait until the database responds to simple queries."""
@@ -205,7 +213,9 @@ async def apply_job_event_to_jobs_table(
 
     """
     ts_sec = _ts_to_pg_seconds(ts)
-    config_json = json.dumps(config) if config is not None else None
+    if config is not None and not isinstance(config, dict):
+        raise ValueError("jobs.config must be a JSON object (dict)")
+    config_json = config if config is not None else None
 
     if ev_type == "JOB_SUBMITTED":
         await conn.execute(
@@ -318,6 +328,7 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
     tenant_id = ev.tenant_id
     user_id = ev.user_id
     event_type = ev.event_type.value
+    event_type_enum = ev.event_type
     event_id = ev.event_id
     seq = ev.seq
     producer = ev.producer
@@ -345,7 +356,7 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
                 producer,
                 schema_version,
                 ts_sec,
-                json.dumps(details),
+                details,
             )
         except UniqueViolationError:
             return None
@@ -363,11 +374,11 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
         current_state = JobState(row["last_state"]) if row and row["last_state"] else None
         new_state = apply_event(current_state, event_type)
 
-        # Retry scheduling: failed jobs can be re-queued with backoff.
-        if event_type == "JOB_FAILED":
+        # Retry scheduling: failed jobs create a new job id with backoff.
+        if event_type_enum == EventType.JOB_FAILED:
             job_row = await conn.fetchrow(
                 """
-                SELECT retry_count, max_retries
+                SELECT retry_count, max_retries, config
                 FROM jobs
                 WHERE job_id = $1 AND tenant_id = $2
                 """,
@@ -379,32 +390,87 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
                 max_retries_raw = job_row["max_retries"]
                 max_retries = JOB_MAX_RETRIES if max_retries_raw is None else int(max_retries_raw)
                 if retry_count < max_retries:
-                    delay_seconds = _compute_retry_delay_seconds(retry_count)
+                    delay_seconds = compute_retry_delay_seconds(
+                        retry_count,
+                        JOB_RETRY_BASE_SECONDS,
+                        JOB_RETRY_MAX_SECONDS,
+                    )
+                    cfg = _require_config_dict(job_row["config"], job_id)
+                    new_job_id, new_cfg = build_retry_job_config(
+                        cfg,
+                        job_id,
+                        retry_count,
+                        details,
+                    )
+
+                    await conn.execute(
+                        """
+                        INSERT INTO jobs(job_id, tenant_id, user_id, submitted_at, updated_at, config, retry_count, max_retries, next_run_at)
+                        VALUES($1, $2, $3, now(), now(), $4::jsonb, $5, $6, now() + ($7::int || ' seconds')::interval)
+                        """,
+                        new_job_id,
+                        tenant_id,
+                        user_id,
+                        new_cfg,
+                        retry_count + 1,
+                        max_retries,
+                        delay_seconds,
+                    )
+
+                    retry_event_id = str(uuid.uuid4())
+                    await conn.execute(
+                        """
+                        INSERT INTO job_events(event_id, job_id, tenant_id, user_id, seq, event_type, producer, schema_version, event_time, payload)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9::jsonb)
+                        """,
+                        retry_event_id,
+                        new_job_id,
+                        tenant_id,
+                        user_id,
+                        1,
+                        "JOB_SUBMITTED",
+                        "event-processor",
+                        1,
+                        {"config": new_cfg},
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO job_state(job_id, tenant_id, user_id, last_state, last_event, last_event_id, last_seq, updated_at)
+                        VALUES($1, $2, $3, $4, $5::jsonb, $6, $7, now())
+                        """,
+                        new_job_id,
+                        tenant_id,
+                        user_id,
+                        JobState.SUBMITTED.value,
+                        {"config": new_cfg},
+                        retry_event_id,
+                        1,
+                    )
+
                     await conn.execute(
                         """
                         UPDATE jobs
                         SET retry_count = $1,
                             max_retries = $2,
-                            next_run_at = now() + ($3::int || ' seconds')::interval,
                             locked_by = NULL,
                             locked_at = NULL,
+                            next_run_at = NULL,
                             updated_at = now()
-                        WHERE job_id = $4 AND tenant_id = $5
+                        WHERE job_id = $3 AND tenant_id = $4
                         """,
                         retry_count + 1,
                         max_retries,
-                        delay_seconds,
                         job_id,
                         tenant_id,
                     )
                     logger.info(
-                        "Scheduled retry for job_id=%s in %ss (attempt %s/%s)",
+                        "Auto-retry created job_id=%s from %s in %ss (attempt %s/%s)",
+                        new_job_id,
                         job_id,
                         delay_seconds,
                         retry_count + 1,
                         max_retries,
                     )
-                    new_state = JobState.RETRYING
                 else:
                     await conn.execute(
                         """
@@ -418,7 +484,7 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
                         tenant_id,
                     )
 
-        if event_type in ("JOB_COMPLETED", "JOB_CANCELLED"):
+        if event_type_enum in (EventType.JOB_COMPLETED, EventType.JOB_CANCELLED):
             await conn.execute(
                 """
                 UPDATE jobs
@@ -450,12 +516,12 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
             tenant_id,
             user_id,
             new_state.value,
-            json.dumps(details),
+            details,
             event_id,
             seq,
         )
 
-        cfg = details.get("config") if event_type == "JOB_SUBMITTED" else None
+        cfg = details.get("config") if event_type_enum == EventType.JOB_SUBMITTED else None
         await apply_job_event_to_jobs_table(
             conn,
             job_id=job_id,
@@ -651,6 +717,7 @@ async def prune_old_events_loop(dsn: str) -> None:
         return
 
     conn = await asyncpg.connect(dsn)
+    await configure_json_codecs(conn)
     try:
         while True:
             try:
@@ -675,6 +742,7 @@ async def main() -> None:
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
     conn = await asyncpg.connect(POSTGRES_DSN)
+    await configure_json_codecs(conn)
     await wait_for_postgres(conn, timeout_s=60)
     await wait_for_schema(conn, timeout_s=60)
     asyncio.create_task(prune_old_events_loop(POSTGRES_DSN))

@@ -10,11 +10,30 @@ from typing import Any, Dict, List, Optional, Tuple
 
 pool: asyncpg.pool.Pool | None = None
 
+
+async def configure_json_codecs(conn: asyncpg.Connection) -> None:
+    # asyncpg returns JSON/JSONB as strings by default. We register codecs so JSON
+    # columns decode into Python dicts/lists everywhere (API + event-processor),
+    # which keeps config handling consistent and avoids string fallbacks.
+    await conn.set_type_codec(
+        "json",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+
+
 async def init_db():
     """Initialize the connection pool and ensure core tables exist."""
     global pool
     if pool is None:
-        pool = await asyncpg.create_pool(POSTGRES_DSN)
+        pool = await asyncpg.create_pool(POSTGRES_DSN, init=configure_json_codecs)
         async with pool.acquire() as conn:
             await conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
@@ -24,17 +43,14 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT now(),
                 submitted_at TIMESTAMP,
                 updated_at TIMESTAMP,
-                config JSONB NOT NULL
+                config JSONB NOT NULL,
+                retry_count INT NOT NULL DEFAULT 0,
+                max_retries INT NOT NULL DEFAULT 0,
+                next_run_at TIMESTAMP,
+                locked_by TEXT,
+                locked_at TIMESTAMP,
+                CONSTRAINT jobs_config_is_object CHECK (jsonb_typeof(config) = 'object')
             );
-            """)
-
-            await conn.execute("""
-            ALTER TABLE jobs
-                ADD COLUMN IF NOT EXISTS retry_count INT NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS max_retries INT NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS locked_by TEXT,
-                ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
             """)
 
             await conn.execute("""
@@ -137,6 +153,8 @@ async def persist_initial_job(job_id: str, config: dict, tenant_id: str, user_id
     global pool
     if pool is None:
         await init_db()
+    if not isinstance(config, dict):
+        raise ValueError("jobs.config must be a JSON object (dict)")
     max_retries = config.get("max_retries")
     if max_retries is None:
         max_retries = JOB_MAX_RETRIES
@@ -148,7 +166,7 @@ async def persist_initial_job(job_id: str, config: dict, tenant_id: str, user_id
             tenant_id,
             user_id,
             config.get("submitted_at", int(time.time())),
-            json.dumps(config),
+            config,
             0,
             int(max_retries),
         )

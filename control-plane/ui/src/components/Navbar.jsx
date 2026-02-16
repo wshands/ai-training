@@ -28,8 +28,8 @@ const Navbar = () => {
   const canSubmit = hasMinRole(role, 'operator');
   const isAuthRoute =
     location.pathname.startsWith('/login') || location.pathname.startsWith('/register');
-
-  if (isAuthRoute) return null;
+  const showAppLinks = isSignedIn && !isAuthRoute;
+  const showAuthLinks = !isSignedIn;
 
   const onLogout = async () => {
     await signOut({ redirectUrl: '/' });
@@ -43,16 +43,34 @@ const Navbar = () => {
           AiTrainOps
         </Link>
         <nav className="flex gap-2 items-center">
-          <NavItem to="/app">Jobs</NavItem>
-          {canSubmit ? (
-            <NavItem to="/jobs/new">New Job</NavItem>
-          ) : (
-            <span
-              className="px-3 py-1 rounded-md text-sm font-medium text-slate-500 cursor-not-allowed"
-              title={roleLoading ? 'Loading permissions…' : 'Read-only role'}
-            >
-              New Job
-            </span>
+          {showAppLinks && (
+            <>
+              <NavItem to="/app">Jobs</NavItem>
+              {canSubmit ? (
+                <NavItem to="/jobs/new">New Job</NavItem>
+              ) : (
+                <span
+                  className="px-3 py-1 rounded-md text-sm font-medium text-slate-500 cursor-not-allowed"
+                  title={roleLoading ? 'Loading permissions…' : 'Read-only role'}
+                >
+                  New Job
+                </span>
+              )}
+            </>
+          )}
+          {showAuthLinks && (
+            <>
+              {isAuthRoute ? (
+                <NavItem to={location.pathname.startsWith('/login') ? '/register' : '/login'}>
+                  {location.pathname.startsWith('/login') ? 'Request access' : 'Sign in'}
+                </NavItem>
+              ) : (
+                <>
+                  <NavItem to="/login">Sign in</NavItem>
+                  <NavItem to="/register">Request access</NavItem>
+                </>
+              )}
+            </>
           )}
           {isSignedIn && (
             <span className="text-xs text-slate-300">

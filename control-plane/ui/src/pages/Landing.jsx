@@ -1,11 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
 
 const Landing = () => {
-  const { isLoaded, isSignedIn } = useAuth();
-  const isReady = isLoaded && isSignedIn;
-
   return (
     <div className="landing min-h-screen bg-[#f7f3ea] text-slate-900">
       <div className="relative overflow-hidden">
@@ -14,35 +10,6 @@ const Landing = () => {
         <div className="absolute bottom-0 right-8 h-64 w-64 rounded-full bg-sky-200/60 blur-3xl" />
 
         <div className="relative max-w-6xl mx-auto px-6 pt-10 pb-16">
-          <nav className="flex items-center justify-between">
-            <Link to="/" className="text-lg font-semibold tracking-tight">
-              AiTrainOps
-            </Link>
-            <div className="flex items-center gap-3 text-sm">
-              <Link
-                to="/login"
-                className="px-3 py-1.5 rounded-full border border-slate-300 text-slate-700 hover:border-slate-500 hover:text-slate-900"
-              >
-                Sign in
-              </Link>
-              {isReady ? (
-                <Link
-                  to="/app"
-                  className="px-4 py-1.5 rounded-full bg-slate-900 text-white hover:bg-slate-800"
-                >
-                  Go to app
-                </Link>
-              ) : (
-                <Link
-                  to="/register"
-                  className="px-4 py-1.5 rounded-full bg-slate-900 text-white hover:bg-slate-800"
-                >
-                  Request access
-                </Link>
-              )}
-            </div>
-          </nav>
-
           <div className="mt-16 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-10 items-center">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
@@ -54,7 +21,8 @@ const Landing = () => {
               </h1>
               <p className="mt-5 text-lg text-slate-700">
                 AiTrainOps gives you orchestration, live logs, and audit trails for
-                Kubernetes training workloads. Data never leaves your VPC.
+                Kubernetes training workloads. Built-in retries and role-based access
+                keep every run safe and resilient.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
@@ -119,11 +87,15 @@ const Landing = () => {
             {[
               {
                 title: 'Job orchestration',
-                body: 'Reliable state transitions, retries, cancellations, and audit history.',
+                body: 'Reliable state transitions, retries with backoff, cancellations, and audit history.',
               },
               {
                 title: 'Live observability',
                 body: 'Stream logs and metrics without stitching together ad-hoc tools.',
+              },
+              {
+                title: 'Role-based access',
+                body: 'Operator, viewer, and admin roles keep teams secure and compliant.',
               },
               {
                 title: 'Tenant-safe control',
@@ -162,6 +134,14 @@ const Landing = () => {
                 <div className="flex gap-3">
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
                   Stream events and logs back to your team
+                </div>
+                <div className="flex gap-3">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                  Apply role-based access for operators and viewers
+                </div>
+                <div className="flex gap-3">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                  Retry failed jobs with backoff for reliability
                 </div>
                 <div className="flex gap-3">
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />

@@ -112,6 +112,17 @@ class JobSummary(BaseModel):
     last_error: Optional[Dict[str, Any]] = None
 
 
+def _require_config_dict(raw_config: Any, job_id: str) -> Dict[str, Any]:
+    if raw_config is None:
+        return {}
+    if isinstance(raw_config, dict):
+        return raw_config
+    raise HTTPException(
+        status_code=500,
+        detail=f"Job config for {job_id} is not a JSON object. Recreate the job.",
+    )
+
+
 class AuthContext(BaseModel):
     user_id: str
     tenant_id: str
@@ -489,8 +500,7 @@ async def retry_job(
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    cfg = row["config"]
-    cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+    cfg_obj = _require_config_dict(row["config"], job_id)
     # Retry creates a new job: strip fields that must be regenerated.
     cfg_obj.pop("job_id", None)
     cfg_obj.pop("submitted_at", None)
@@ -555,7 +565,7 @@ async def list_jobs(
                 created_at=r["created_at"],
                 submitted_at=r.get("submitted_at"),
                 updated_at=r.get("updated_at"),
-                config=json.loads(r["config"]) if isinstance(r["config"], str) else (r["config"] or {}),
+                config=_require_config_dict(r["config"], r["job_id"]),
                 last_error=last_error,
             )
         )
@@ -574,8 +584,7 @@ async def get_job(
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    cfg = row["config"]
-    cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+    cfg_obj = _require_config_dict(row["config"], row["job_id"])
     return JobSummary(
         job_id=row["job_id"],
         status=(row["status"] or JobState.SUBMITTED.value),
@@ -611,8 +620,7 @@ async def list_pending_jobs(
         if isinstance(last_event, str):
             last_event = json.loads(last_event)
         last_error = (last_event or {}).get("error")
-        cfg = r["config"]
-        cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        cfg_obj = _require_config_dict(r["config"], r["job_id"])
         summaries.append(
             JobSummary(
                 job_id=r["job_id"],
@@ -653,8 +661,7 @@ async def claim_ready_jobs(
         if isinstance(last_event, str):
             last_event = json.loads(last_event)
         last_error = (last_event or {}).get("error")
-        cfg = r["config"]
-        cfg_obj = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        cfg_obj = _require_config_dict(r["config"], r["job_id"])
         summaries.append(
             JobSummary(
                 job_id=r["job_id"],

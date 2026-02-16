@@ -11,6 +11,12 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - docker-compose-kafka.yml – Local dev stack (Kafka, Postgres, services)
 - .github/workflows/ – CI workflows to build/push Docker images and deploy UI
 
+## Docs
+
+- `docs/overview.md` — platform overview and MVP scope
+- `docs/rbac.md` — role-based access control (roles + endpoint guards)
+- `docs/job-queueing.md` — queue semantics, leases, retries
+
 ## CI setup checklist
 
 - [ ] Apply IAM OIDC stack: `deploy/terraform/iam-ci/`
@@ -87,6 +93,10 @@ CI/CD note:
 - `.github/workflows/build-and-push-dockerhub.yml` builds and pushes data-plane images to DockerHub (public/test images).
 - `deploy/terraform/iam-ci/` provisions GitHub OIDC roles for CI (ECR + UI deploy).
   - See `deploy/terraform/iam-ci/README.md` for required GitHub secrets and variables.
+
+Tests note:
+- `tests/test_retry_integration.py` uses Testcontainers and requires Docker to be running.
+- Install dev dependencies before running tests: `pip install -r requirements-dev.txt`.
 
 ## AWS deploy scripts
 

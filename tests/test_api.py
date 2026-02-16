@@ -14,6 +14,8 @@ def client():
     main_mod.app.router.on_startup.clear()
     main_mod.app.router.on_shutdown.clear()
     main_mod.app.dependency_overrides.clear()
+    # Dependency overrides let tests inject a fake identity without hitting
+    # Clerk/SSO, keeping RBAC tests fast and deterministic.
     main_mod.app.dependency_overrides[main_mod.get_current_identity] = lambda: AuthContext(
         user_id="user-1",
         tenant_id="tenant-1",
@@ -78,6 +80,63 @@ def test_submit_job_requires_operator(client) -> None:
             "distributed": False,
         },
     )
+    assert resp.status_code == 403
+
+
+def test_submit_job_allows_operator(client, monkeypatch) -> None:
+    main_mod.app.dependency_overrides[main_mod.get_current_identity] = lambda: AuthContext(
+        user_id="user-1",
+        tenant_id="tenant-1",
+        email="test@example.com",
+        role="org:operator",
+    )
+
+    async def fake_persist(job_id: str, config: dict, tenant_id: str, user_id: str):
+        assert tenant_id == "tenant-1"
+        assert user_id == "user-1"
+
+    async def fake_send_event(event):
+        return None
+
+    monkeypatch.setattr(main_mod, "persist_initial_job", fake_persist)
+    monkeypatch.setattr(main_mod, "send_event", fake_send_event)
+
+    resp = client.post(
+        "/jobs/train",
+        json={
+            "model_id": "m1",
+            "dataset_id": "d1",
+            "epochs": 1,
+            "batch_size": 8,
+            "lr": 0.01,
+            "distributed": False,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "SUBMITTED"
+    assert data["job_id"]
+
+
+def test_cancel_job_requires_operator(client) -> None:
+    main_mod.app.dependency_overrides[main_mod.get_current_identity] = lambda: AuthContext(
+        user_id="user-1",
+        tenant_id="tenant-1",
+        email="test@example.com",
+        role="org:viewer",
+    )
+    resp = client.post("/jobs/job-123/cancel")
+    assert resp.status_code == 403
+
+
+def test_retry_job_requires_operator(client) -> None:
+    main_mod.app.dependency_overrides[main_mod.get_current_identity] = lambda: AuthContext(
+        user_id="user-1",
+        tenant_id="tenant-1",
+        email="test@example.com",
+        role="org:viewer",
+    )
+    resp = client.post("/jobs/job-123/retry")
     assert resp.status_code == 403
 
 

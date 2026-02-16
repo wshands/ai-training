@@ -31,71 +31,71 @@ const SignedOutOnly = ({ children }) => {
 };
 
 const AppShell = () => (
-  <div className="min-h-screen flex flex-col">
-    <Navbar />
-    <main className="flex-1">
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <Routes>
-          <Route
-            path="/login/*"
-            element={
-              <SignedOutOnly>
-                <Login />
-              </SignedOutOnly>
-            }
-          />
-          <Route
-            path="/register/*"
-            element={
-              <SignedOutOnly>
-                <Register />
-              </SignedOutOnly>
-            }
-          />
-          <Route
-            path="/select-org"
-            element={
-              <AuthGate requireOrg={false}>
-                <OrgSelect />
-              </AuthGate>
-            }
-          />
-          <Route
-            path="/app"
-            element={
-              <RequireAuth>
-                <Dashboard />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/jobs/new"
-            element={
-              <RequireAuth>
-                <NewJobWizard />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/jobs/:jobId"
-            element={
-              <RequireAuth>
-                <JobDetail />
-              </RequireAuth>
-            }
-          />
-        </Routes>
-        <AuthDebug />
-      </div>
-    </main>
-  </div>
+  <main className="flex-1">
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <Routes>
+        <Route
+          path="/login/*"
+          element={
+            <SignedOutOnly>
+              <Login />
+            </SignedOutOnly>
+          }
+        />
+        <Route
+          path="/register/*"
+          element={
+            <SignedOutOnly>
+              <Register />
+            </SignedOutOnly>
+          }
+        />
+        <Route
+          path="/select-org"
+          element={
+            <AuthGate requireOrg={false}>
+              <OrgSelect />
+            </AuthGate>
+          }
+        />
+        <Route
+          path="/app"
+          element={
+            <RequireAuth>
+              <Dashboard />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/jobs/new"
+          element={
+            <RequireAuth>
+              <NewJobWizard />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/jobs/:jobId"
+          element={
+            <RequireAuth>
+              <JobDetail />
+            </RequireAuth>
+          }
+        />
+      </Routes>
+      <AuthDebug />
+    </div>
+  </main>
 );
 
 const AppRoutes = () => (
-  <Routes>
-    <Route path="/" element={<Landing />} />
-    <Route path="/*" element={<AppShell />} />
-  </Routes>
+  <div className="min-h-screen flex flex-col">
+    <Navbar />
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/*" element={<AppShell />} />
+    </Routes>
+  </div>
 );
 
 const App = () => {
