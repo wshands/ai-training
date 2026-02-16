@@ -38,25 +38,3 @@ variable "ecr_policy_name" {
   description = "IAM policy name for ECR builds"
   default     = "ai-training-github-ecr-policy"
 }
-
-variable "ui_role_name" {
-  type        = string
-  description = "IAM role name for UI deploy"
-  default     = "ai-training-github-ui"
-}
-
-variable "ui_policy_name" {
-  type        = string
-  description = "IAM policy name for UI deploy"
-  default     = "ai-training-github-ui-policy"
-}
-
-variable "ui_bucket_name" {
-  type        = string
-  description = "UI S3 bucket name"
-}
-
-variable "ui_cloudfront_distribution_id" {
-  type        = string
-  description = "CloudFront distribution ID for UI"
-}

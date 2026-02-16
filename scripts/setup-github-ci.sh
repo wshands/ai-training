@@ -36,18 +36,8 @@ fi
 
 echo "Reading IAM CI outputs..."
 ECR_ROLE_ARN="$(terraform -chdir="$IAM_TF_DIR" output -raw ecr_role_arn)"
-UI_ROLE_ARN="$(terraform -chdir="$IAM_TF_DIR" output -raw ui_role_arn)"
 
 echo "Setting GitHub secrets..."
 gh secret set AWS_ROLE_ARN -b "$ECR_ROLE_ARN"
-gh secret set AWS_UI_ROLE_ARN -b "$UI_ROLE_ARN"
 
-echo "Reading control-plane outputs..."
-UI_BUCKET="$(terraform -chdir="$CP_TF_DIR" output -raw ui_bucket_name)"
-UI_CLOUDFRONT_DISTRIBUTION_ID="$(terraform -chdir="$CP_TF_DIR" output -raw ui_cloudfront_distribution_id)"
-
-echo "Setting GitHub variables..."
-gh variable set UI_BUCKET -b "$UI_BUCKET"
-gh variable set UI_CLOUDFRONT_DISTRIBUTION_ID -b "$UI_CLOUDFRONT_DISTRIBUTION_ID"
-
-echo "Done. Remember to set other UI variables (API/WS URLs, Clerk key)."
+echo "Done."

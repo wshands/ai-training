@@ -7,23 +7,17 @@ GitHub Actions without static credentials.
 This stack provisions:
 - The GitHub OIDC provider
 - An ECR build role (for image pushes)
-- A UI deploy role (for S3 sync + CloudFront invalidation)
 
 Outputs:
 - `ecr_role_arn`
-- `ui_role_arn`
 
-These are the **role ARNs** the workflows assume.
+This is the **role ARN** the workflows assume.
 
 ## 2) Setup script (`scripts/setup-github-ci.sh`)
 The helper script reads Terraform outputs and pushes them into GitHub:
 
 - **Secrets**
   - `AWS_ROLE_ARN` (from `ecr_role_arn`)
-  - `AWS_UI_ROLE_ARN` (from `ui_role_arn`)
-- **Variables**
-  - `UI_BUCKET` (from `ui_bucket_name` in the control-plane stack)
-  - `UI_CLOUDFRONT_DISTRIBUTION_ID` (from `ui_cloudfront_distribution_id`)
 
 This keeps the workflows fully automated without manual copying.
 
@@ -37,11 +31,6 @@ Two workflows consume those values:
 - `build-and-push-ecr.yml`
   - Assumes `AWS_ROLE_ARN`
   - Builds + pushes control-plane & event-processor images to ECR
-
-- `deploy-ui.yml`
-  - Assumes `AWS_UI_ROLE_ARN`
-  - Uses `UI_BUCKET` + `UI_CLOUDFRONT_DISTRIBUTION_ID`
-  - Builds and deploys the UI
 
 ## TL;DR
 - **Terraform** creates IAM roles.

@@ -7,8 +7,3 @@ output "ecr_role_arn" {
   description = "Role ARN for ECR builds"
   value       = aws_iam_role.ecr.arn
 }
-
-output "ui_role_arn" {
-  description = "Role ARN for UI deploy"
-  value       = aws_iam_role.ui.arn
-}

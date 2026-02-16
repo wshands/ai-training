@@ -21,8 +21,9 @@ const Landing = () => {
               </h1>
               <p className="mt-5 text-lg text-slate-700">
                 AiTrainOps gives you orchestration, live logs, and audit trails for
-                Kubernetes training workloads. Built-in retries and role-based access
-                keep every run safe and resilient.
+                Kubernetes training workloads. Built-in retries, role-based access,
+                and an admin console for token lifecycle + retention keep every run
+                safe and resilient.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
@@ -98,8 +99,8 @@ const Landing = () => {
                 body: 'Operator, viewer, and admin roles keep teams secure and compliant.',
               },
               {
-                title: 'Tenant-safe control',
-                body: 'Multi-tenant by design so teams can run multiple models safely.',
+                title: 'Admin controls',
+                body: 'Mint/revoke data-plane tokens, export audit history, and set retention.',
               },
             ].map((item) => (
               <div key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -146,6 +147,10 @@ const Landing = () => {
                 <div className="flex gap-3">
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
                   Keep a complete audit trail for compliance
+                </div>
+                <div className="flex gap-3">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                  Manage tokens and retention from the admin console
                 </div>
               </div>
             </div>
