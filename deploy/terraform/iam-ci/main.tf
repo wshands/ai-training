@@ -71,8 +71,11 @@ data "aws_iam_policy_document" "ecr_policy" {
     actions = [
       "ecr:CreateRepository",
       "ecr:DescribeRepositories",
+      "ecr:DescribeImages",
       "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
+      "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:PutImage",
       "ecr:UploadLayerPart",

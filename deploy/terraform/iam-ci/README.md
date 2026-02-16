@@ -10,10 +10,9 @@ It is intended to be applied once and left alone (separate from the app infra).
 
 ```bash
 cd deploy/terraform/iam-ci
-cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars`:
+Provide variables either via `terraform.tfvars` or `-var` flags:
 - `github_repo` (e.g., `wshands/ai-training`)
 - `github_branches` (e.g., `["main","develop"]`)
 
@@ -21,7 +20,7 @@ Edit `terraform.tfvars`:
 
 ```bash
 terraform init
-terraform apply
+terraform apply -var "github_repo=wshands/ai-training"
 ```
 
 ## 3) GitHub secrets

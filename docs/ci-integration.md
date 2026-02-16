@@ -22,17 +22,18 @@ The helper script reads Terraform outputs and pushes them into GitHub:
 This keeps the workflows fully automated without manual copying.
 
 Run it once when you first set up CI. Re-run it after any Terraform
-destroy/apply that changes IAM role ARNs, UI bucket name, or CloudFront
-distribution ID.
+destroy/apply that changes IAM role ARNs.
 
 ## 3) GitHub Actions workflows (`.github/workflows`)
-Two workflows consume those values:
+Workflows consume those values:
 
 - `build-and-push-ecr.yml`
   - Assumes `AWS_ROLE_ARN`
   - Builds + pushes control-plane & event-processor images to ECR
 
+Also set the GitHub **variable** `AWS_REGION` (e.g., `us-west-2`) for the workflow.
+
 ## TL;DR
 - **Terraform** creates IAM roles.
-- **Setup script** syncs Terraform outputs into GitHub secrets/vars.
-- **Workflows** use those secrets/vars to run with OIDC.
+- **Setup script** syncs Terraform outputs into GitHub secrets.
+- **Workflows** use those secrets to run with OIDC.

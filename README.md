@@ -90,7 +90,7 @@ Tests note:
 
 - `scripts/deploy-ai-training-to-aws.sh`
   - Runs `terraform init` + guarded secret import + `terraform apply`.
-  - Runs `scripts/setup-github-ci.sh` to sync outputs into GitHub secrets/vars.
+  - Runs `scripts/setup-github-ci.sh` to sync the ECR role ARN into GitHub secrets.
   - Runs UI deploy using Terraform outputs.
   - Prints a summary (API/UI URLs, ALB DNS, UI bucket, CloudFront ID).
   - Run from anywhere; paths are resolved relative to the script location.
