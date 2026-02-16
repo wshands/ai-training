@@ -159,6 +159,24 @@ async def init_db():
             );
             """)
 
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS admin_audit_events (
+                id BIGSERIAL PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT,
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP NOT NULL DEFAULT now()
+            );
+            """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_admin_audit_events_tenant_created
+            ON admin_audit_events(tenant_id, created_at DESC);
+            """)
+
     return pool
 
 
@@ -580,6 +598,60 @@ async def fetch_audit_events(tenant_id: str) -> List[asyncpg.Record]:
               ON js.job_id = e.job_id AND js.tenant_id = e.tenant_id
             WHERE e.tenant_id = $1
             ORDER BY e.event_time ASC, e.id ASC
+            """,
+            tenant_id,
+        )
+    return rows
+
+
+async def insert_admin_audit_event(
+    tenant_id: str,
+    user_id: str,
+    action: str,
+    entity_type: str,
+    entity_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> asyncpg.Record:
+    """Insert an admin audit event for a tenant."""
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO admin_audit_events(
+                tenant_id,
+                user_id,
+                action,
+                entity_type,
+                entity_id,
+                metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, tenant_id, user_id, action, entity_type, entity_id, metadata, created_at
+            """,
+            tenant_id,
+            user_id,
+            action,
+            entity_type,
+            entity_id,
+            metadata or {},
+        )
+    return row
+
+
+async def fetch_admin_audit_events(tenant_id: str) -> List[asyncpg.Record]:
+    """Fetch admin audit events for a tenant."""
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, tenant_id, user_id, action, entity_type, entity_id, metadata, created_at
+            FROM admin_audit_events
+            WHERE tenant_id = $1
+            ORDER BY created_at ASC, id ASC
             """,
             tenant_id,
         )

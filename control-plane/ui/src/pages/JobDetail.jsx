@@ -160,7 +160,10 @@ const JobDetail = () => {
       try {
         const res = await api.get('/settings/retention');
         if (!cancelled) {
-          setRetentionDays(res.data?.event_retention_days ?? null);
+          const days = res.data?.event_retention_days;
+          setRetentionDays(
+            days === null || days === undefined ? null : Math.max(0, Number(days))
+          );
           setRetentionSource(res.data?.source || 'default');
           setRetentionDefault(res.data?.default_event_retention_days ?? null);
         }
@@ -431,7 +434,7 @@ const JobDetail = () => {
                 retentionDefault !== null &&
                 retentionDefault !== retentionDays && (
                   <span className="ml-2 text-slate-500">
-                    (default {retentionDefault} days)
+                    (default {retentionDefault <= 0 ? 'disabled' : `${retentionDefault} days`})
                   </span>
                 )}
             </div>

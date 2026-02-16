@@ -18,11 +18,13 @@ from common.ai_training_common.state_machine import JobState
 def setup_logging() -> None:
     """Configure process-wide logging with an env-driven log level."""
     level = os.getenv("LOG_LEVEL", "INFO").upper()
+    httpx_level = os.getenv("HTTPX_LOG_LEVEL", "WARNING").upper()
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=True,
     )
+    logging.getLogger("httpx").setLevel(getattr(logging, httpx_level, logging.WARNING))
 
 
 setup_logging()

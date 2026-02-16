@@ -16,6 +16,7 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - `docs/overview.md` — platform overview and MVP scope
 - `docs/rbac.md` — role-based access control (roles + endpoint guards)
 - `docs/job-queueing.md` — queue semantics, leases, retries
+- `docs/audit-log.md` — audit log + export (job events + admin actions)
 
 ## CI setup checklist
 

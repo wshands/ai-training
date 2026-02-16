@@ -152,6 +152,10 @@ const Landing = () => {
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
                   Manage tokens and retention from the admin console
                 </div>
+                <div className="flex gap-3">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                  Export admin actions alongside job history for audits
+                </div>
               </div>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">

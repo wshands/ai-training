@@ -36,3 +36,7 @@ spec:
             - name: DATA_PLANE_TENANT_ID
               value: "{{ .Values.jobLauncher.dataPlaneTenantId }}"
             {{- end }}
+            {{- if .Values.jobLauncher.httpxLogLevel }}
+            - name: HTTPX_LOG_LEVEL
+              value: "{{ .Values.jobLauncher.httpxLogLevel }}"
+            {{- end }}

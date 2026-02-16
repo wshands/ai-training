@@ -14,6 +14,7 @@ AiTrainOps is a control‑plane + data‑plane platform for running GPU training
 ### Control‑plane (vendor AWS)
 - **FastAPI API** for job submission, status, events, and WebSocket streams.
 - **Postgres** stores job metadata, state projections, and event history.
+- **Admin audit log** captures token mints/revokes and retention changes.
 - **Event bus** for job lifecycle events (SQS FIFO by default; Kafka/MSK optional).
 - **Redis** fan‑out for WebSocket live updates.
 - **React UI** for job lists, detail, logs, metrics, and admin operations.
@@ -58,6 +59,7 @@ This architecture gives customers the benefits of a SaaS control‑plane without
 - Live logs and metrics in the UI
 - Multi‑tenant auth
 - Data‑plane job launcher for Kubernetes
+- Admin audit export (job events + admin actions)
 
 ## What’s next (roadmap)
 - Token rotation + lifecycle policies

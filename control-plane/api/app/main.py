@@ -91,6 +91,8 @@ from common.ai_training_common.db import (
     get_event_retention_days,
     set_event_retention_days,
     fetch_audit_events,
+    insert_admin_audit_event,
+    fetch_admin_audit_events,
 )
 from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
 
@@ -816,6 +818,17 @@ async def mint_self_data_plane_token(
     token_hash = _hash_data_plane_token(token)
     token_prefix = token[:8]
     row = await insert_data_plane_token(identity.tenant_id, token_prefix, token_hash, req.token_label)
+    await insert_admin_audit_event(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        action="token_minted",
+        entity_type="data_plane_token",
+        entity_id=str(row["id"]),
+        metadata={
+            "token_prefix": row["token_prefix"],
+            "token_label": row["token_label"],
+        },
+    )
     return {
         "tenant_id": identity.tenant_id,
         "token_id": str(row["id"]),
@@ -835,6 +848,15 @@ async def revoke_self_data_plane_token(
         identity.tenant_id,
         token_id=token_id,
     )
+    if revoked:
+        await insert_admin_audit_event(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            action="token_revoked",
+            entity_type="data_plane_token",
+            entity_id=token_id,
+            metadata={},
+        )
     return {"tenant_id": identity.tenant_id, "revoked": revoked}
 
 
@@ -863,8 +885,17 @@ async def update_retention_settings_admin(
     identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
 ):
     """Update retention settings for the current tenant (admin)."""
+    previous = await get_event_retention_days(identity.tenant_id)
     await set_event_retention_days(identity.tenant_id, req.event_retention_days)
     override = await get_event_retention_days(identity.tenant_id)
+    await insert_admin_audit_event(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        action="retention_updated",
+        entity_type="retention_settings",
+        entity_id=identity.tenant_id,
+        metadata={"previous_days": previous, "next_days": override},
+    )
     if override is not None:
         return {
             "event_retention_days": override,
@@ -884,11 +915,28 @@ async def audit_export(
     identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
 ):
     """Export job + event audit data for the current tenant."""
-    rows = await fetch_audit_events(identity.tenant_id)
-    payload = [dict(row) for row in rows]
+    job_rows = await fetch_audit_events(identity.tenant_id)
+    admin_rows = await fetch_admin_audit_events(identity.tenant_id)
+    job_payload = [dict(row) for row in job_rows]
+    admin_payload = [dict(row) for row in admin_rows]
+
+    combined = []
+    for row in job_payload:
+        row = dict(row)
+        row["source"] = "job_event"
+        row["timestamp"] = row.get("event_time")
+        combined.append(row)
+    for row in admin_payload:
+        row = dict(row)
+        row["source"] = "admin_action"
+        row["timestamp"] = row.get("created_at")
+        combined.append(row)
+    combined.sort(key=lambda r: r.get("timestamp") or datetime.min)
     if format == "csv":
         output = io.StringIO()
         fieldnames = [
+            "source",
+            "timestamp",
             "event_id",
             "event_time",
             "event_type",
@@ -902,16 +950,22 @@ async def audit_export(
             "job_submitted_at",
             "job_updated_at",
             "job_config",
+            "action",
+            "entity_type",
+            "entity_id",
+            "metadata",
         ]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
-        for row in payload:
+        for row in combined:
             row = dict(row)
+            row["timestamp"] = row["timestamp"].isoformat() if row.get("timestamp") else ""
             row["event_time"] = row["event_time"].isoformat() if row.get("event_time") else ""
             row["job_created_at"] = row["job_created_at"].isoformat() if row.get("job_created_at") else ""
             row["job_submitted_at"] = row["job_submitted_at"].isoformat() if row.get("job_submitted_at") else ""
             row["job_updated_at"] = row["job_updated_at"].isoformat() if row.get("job_updated_at") else ""
             row["job_config"] = json.dumps(row.get("job_config") or {})
+            row["metadata"] = json.dumps(row.get("metadata") or {})
             writer.writerow({k: row.get(k, "") for k in fieldnames})
         csv_bytes = output.getvalue().encode("utf-8")
         return Response(
@@ -920,7 +974,14 @@ async def audit_export(
             headers={"Content-Disposition": "attachment; filename=audit-export.csv"},
         )
     return JSONResponse(
-        content=jsonable_encoder({"tenant_id": identity.tenant_id, "events": payload})
+        content=jsonable_encoder(
+            {
+                "tenant_id": identity.tenant_id,
+                "events": combined,
+                "job_events": job_payload,
+                "admin_events": admin_payload,
+            }
+        )
     )
 
 

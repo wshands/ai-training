@@ -10,3 +10,4 @@ jobLauncher:
   #controlPlaneUrl: "https://api.aitrainops.com"
   dataPlaneApiToken: "local-dev-token"
   dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"
+  httpxLogLevel: "WARNING"

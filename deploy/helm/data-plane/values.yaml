@@ -9,3 +9,4 @@ jobLauncher:
   controlPlaneUrl: "https://control-plane.example.com"
   dataPlaneApiToken: "<data-plane-token>"
   dataPlaneTenantId: "<tenant-id>"
+  httpxLogLevel: "WARNING"
