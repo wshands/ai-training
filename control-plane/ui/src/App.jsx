@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import NewJobWizard from './pages/NewJobWizard';
 import JobDetail from './pages/JobDetail';
 import AdminTokens from './pages/AdminTokens';
+import AdminUsers from './pages/AdminUsers';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import OrgSelect from './pages/OrgSelect';
@@ -88,6 +89,14 @@ const AppShell = () => (
           element={
             <RequireAuth>
               <AdminTokens />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/users/*"
+          element={
+            <RequireAuth>
+              <AdminUsers />
             </RequireAuth>
           }
         />
