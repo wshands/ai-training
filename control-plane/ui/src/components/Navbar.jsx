@@ -58,6 +58,7 @@ const Navbar = () => {
                 </span>
               )}
               {isAdmin && <NavItem to="/admin/tokens">Admin</NavItem>}
+              {isAdmin && <NavItem to="/admin/users">Users</NavItem>}
             </>
           )}
           {showAuthLinks && (

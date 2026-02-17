@@ -100,7 +100,7 @@ const Landing = () => {
               },
               {
                 title: 'Admin controls',
-                body: 'Mint/revoke data-plane tokens, export audit history, and set retention.',
+                body: 'Manage users, mint/revoke data-plane tokens, export audit history, and set retention.',
               },
             ].map((item) => (
               <div key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -155,6 +155,10 @@ const Landing = () => {
                 <div className="flex gap-3">
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
                   Export admin actions alongside job history for audits
+                </div>
+                <div className="flex gap-3">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                  Invite teammates and assign roles in-app (admin only)
                 </div>
               </div>
             </div>
