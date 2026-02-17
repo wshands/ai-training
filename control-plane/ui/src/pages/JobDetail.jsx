@@ -400,6 +400,24 @@ const JobDetail = () => {
         </div>
       )}
 
+      {(cfg.artifact_uri || cfg.artifactUri) && (
+        <div className="text-sm bg-slate-900/60 border border-slate-800 rounded-lg p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Artifacts
+          </div>
+          <div className="mt-2">
+            <a
+              className="text-sky-300 hover:text-sky-200 break-all"
+              href={cfg.artifact_uri || cfg.artifactUri}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {cfg.artifact_uri || cfg.artifactUri}
+            </a>
+          </div>
+        </div>
+      )}
+
       {lastError && (
         <div className="text-sm text-rose-300 bg-rose-950/40 border border-rose-800 rounded p-3">
           <div className="font-semibold">Job failed</div>

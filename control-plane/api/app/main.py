@@ -366,6 +366,7 @@ class TrainJobRequest(BaseModel):
     batch_size: int = 32
     lr: float = 1e-3
     distributed: bool = False
+    artifact_uri: Optional[str] = None
     extra_config: dict | None = None
 
 
@@ -381,6 +382,7 @@ class JobConfig(BaseModel):
     batch_size: int
     lr: float
     distributed: bool
+    artifact_uri: Optional[str] = None
     extra: dict = Field(default_factory=dict)
     submitted_at: int
     seq_start: int
@@ -468,6 +470,7 @@ async def submit_training_job(
         batch_size=req.batch_size,
         lr=req.lr,
         distributed=req.distributed,
+        artifact_uri=req.artifact_uri,
         extra=req.extra_config or {},
         submitted_at=int(time.time()),
         seq_start=2,

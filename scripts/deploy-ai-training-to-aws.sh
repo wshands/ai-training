@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CP_TF_DIR="${ROOT_DIR}/deploy/terraform/control-plane"
 SECRET_RESOURCE="aws_secretsmanager_secret.postgres_dsn"
 SECRET_NAME="${POSTGRES_DSN_SECRET_NAME:-ai-platform/postgres-dsn}"
+IMPORT_OUTPUT="/tmp/terraform-import-$$.log"
 
 export AWS_SDK_LOAD_CONFIG=1
 export AWS_PROFILE="${AWS_PROFILE:-AdministratorAccess-230407893272}"
@@ -34,12 +35,23 @@ fi
 echo "Initializing Terraform..."
 terraform -chdir="$CP_TF_DIR" init
 
-if terraform -chdir="$CP_TF_DIR" state list | grep -q "^${SECRET_RESOURCE}$"; then
+secret_in_state() {
+  terraform -chdir="$CP_TF_DIR" state list | grep -E -q "^${SECRET_RESOURCE}(\\[|$)"
+}
+
+if secret_in_state; then
   echo "Secret already in Terraform state; skipping import."
 else
   if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
     echo "Importing existing secret into Terraform state..."
-    terraform -chdir="$CP_TF_DIR" import "$SECRET_RESOURCE" "$SECRET_NAME"
+    if ! terraform -chdir="$CP_TF_DIR" import "$SECRET_RESOURCE" "$SECRET_NAME" 2>&1 | tee "$IMPORT_OUTPUT" >/dev/null; then
+      if secret_in_state || rg -q "Resource already managed by Terraform" "$IMPORT_OUTPUT"; then
+        echo "Secret already managed; continuing."
+      else
+        echo "Failed to import secret into Terraform state." >&2
+        exit 1
+      fi
+    fi
   else
     echo "Secret not found in AWS; skipping import."
   fi

@@ -16,6 +16,7 @@ const NewJobWizard = () => {
     batchSize: 32,
     learningRate: 0.001,
     distributed: false,
+    artifactUri: '',
     displayName: '',
     notes: '',
   });
@@ -41,6 +42,7 @@ const NewJobWizard = () => {
         batch_size: Number(form.batchSize),
         lr: Number(form.learningRate),
         distributed: !!form.distributed,
+        artifact_uri: form.artifactUri || undefined,
         extra_config: {
           display_name: form.displayName || undefined,
           notes: form.notes || undefined,
@@ -154,6 +156,18 @@ const NewJobWizard = () => {
 
         {step === 2 && (
           <>
+            <div>
+              <label className="block text-sm mb-1">Artifact URI (optional)</label>
+              <input
+                className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={form.artifactUri}
+                onChange={(e) => updateField('artifactUri', e.target.value)}
+                placeholder="e.g. s3://bucket/runs/job-123 or https://..."
+              />
+              <div className="mt-2 text-xs text-slate-500">
+                Link to model artifacts, checkpoints, or reports produced by the job.
+              </div>
+            </div>
             <div>
               <label className="block text-sm mb-1">Display name</label>
               <input

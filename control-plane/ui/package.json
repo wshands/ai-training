@@ -20,7 +20,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "deploy": "react-scripts build && aws s3 sync build/ s3://$UI_BUCKET --delete && aws cloudfront create-invalidation --distribution-id $UI_CLOUDFRONT_DISTRIBUTION_ID --paths \"/*\"",
-    "deploy:clean": "rm -rf node_modules/.cache node_modules && npm ci",
+    "deploy:clean": "rm -rf node_modules/.cache node_modules || true && npm ci",
     "deploy:clean:env": "npm run deploy:clean && node ./scripts/deploy-with-env.js",
     "deploy:clean:https": "npm run deploy:clean:env",
     "deploy:terraform": "bash ./scripts/deploy-ui-from-terraform.sh",
