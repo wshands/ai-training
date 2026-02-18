@@ -15,3 +15,51 @@ helm upgrade --install ai-data-plane ./deploy/helm/data-plane \
   --namespace training-jobs --create-namespace \
   -f values-eks.yaml
 ```
+
+## Publish a public Helm repo (GitHub Pages)
+
+Use a separate repo (e.g. `wshands/aitrainops-charts`) with GitHub Pages enabled on the
+`gh-pages` branch.
+
+1) Create the charts repo and enable Pages
+
+- Repo: `wshands/aitrainops-charts`
+- Settings → Pages → Source: `gh-pages` branch
+- Public URL: `https://wshands.github.io/aitrainops-charts`
+
+2) Clone the charts repo locally
+
+```bash
+git clone git@github.com:wshands/aitrainops-charts.git ~/code/aitrainops-charts
+```
+
+3) Package and publish the chart
+
+```bash
+export CHARTS_REPO_DIR="$HOME/code/aitrainops-charts"
+export CHARTS_REPO_URL="https://wshands.github.io/aitrainops-charts"
+./scripts/helm-publish.sh
+```
+
+Run the script from the repo root so relative paths resolve correctly.
+
+4) Install from the public repo
+
+```bash
+helm repo add aitrainops https://wshands.github.io/aitrainops-charts
+helm repo update
+helm install aitrainops-agent aitrainops/ai-training-data-plane \
+  --namespace training-jobs --create-namespace \
+  --set orgId=org_123 \
+  --set apiKey=token_abc
+```
+
+## GitHub Actions publishing (optional)
+
+There is a workflow that packages and publishes the chart when:
+- a `chart-*` tag is pushed, or
+- `deploy/helm/data-plane/Chart.yaml` changes on `main`/`develop`.
+
+Requirements:
+- Add a repo secret `CHARTS_REPO_TOKEN` with permission to push to
+  `wshands/aitrainops-charts` (gh-pages branch).

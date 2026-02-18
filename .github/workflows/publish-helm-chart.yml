@@ -1,0 +1,49 @@
+name: publish-helm-chart
+
+on:
+  push:
+    tags:
+      - "chart-*"
+    branches:
+      - main
+      - develop
+    paths:
+      - "deploy/helm/data-plane/Chart.yaml"
+      - "deploy/helm/data-plane/values*.yaml"
+      - "deploy/helm/data-plane/templates/**"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ai-training repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout charts repo (gh-pages)
+        uses: actions/checkout@v4
+        with:
+          repository: wshands/aitrainops-charts
+          ref: gh-pages
+          token: ${{ secrets.CHARTS_REPO_TOKEN }}
+          path: charts-repo
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure git identity
+        run: |
+          git -C charts-repo config user.name "github-actions"
+          git -C charts-repo config user.email "github-actions@github.com"
+
+      - name: Publish Helm chart
+        env:
+          CHARTS_REPO_DIR: ${{ github.workspace }}/charts-repo
+          CHARTS_REPO_URL: https://wshands.github.io/aitrainops-charts
+        run: |
+          chmod +x ./scripts/helm-publish.sh
+          ./scripts/helm-publish.sh

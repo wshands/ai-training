@@ -7,8 +7,6 @@ jobLauncher:
   trainingImage: bigdog/ai-training-job:latest
   trainingNamespace: "training-jobs"
   controlPlaneUrl: "https://api.aitrainops.com"
-  #dataPlaneApiToken: "<data-plane-token>"
-  #dataPlaneTenantId: "<tenant-id>"
-  dataPlaneApiToken: "local-dev-token"
-  dataPlaneTenantId: "org_38SbNxZ65gr09sqKWm378MUjsFV"
+  dataPlaneApiToken: "<data-plane-token>"
+  dataPlaneTenantId: "<tenant-id>"
   httpxLogLevel: "WARNING"
