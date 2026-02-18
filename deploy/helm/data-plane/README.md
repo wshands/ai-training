@@ -50,8 +50,8 @@ helm repo add aitrainops https://wshands.github.io/aitrainops-charts
 helm repo update
 helm install aitrainops-agent aitrainops/ai-training-data-plane \
   --namespace training-jobs --create-namespace \
-  --set orgId=org_123 \
-  --set apiKey=token_abc
+  --set jobLauncher.dataPlaneTenantId=org_123 \
+  --set jobLauncher.dataPlaneApiToken=token_abc
 ```
 
 ## GitHub Actions publishing (optional)

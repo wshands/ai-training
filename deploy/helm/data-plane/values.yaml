@@ -1,10 +1,10 @@
 jobLauncher:
   image:
-    repository: <REGISTRY>/job-launcher
-    tag: <IMAGE_TAG>
+    repository: bigdog/ai-training-job-launcher
+    tag: latest
     pullPolicy: IfNotPresent
   replicas: 1
-  trainingImage: <REGISTRY>/training-job:<IMAGE_TAG>
+  trainingImage: bigdog/ai-training-job:latest
   trainingNamespace: "training-jobs"
   controlPlaneUrl: "https://control-plane.example.com"
   dataPlaneApiToken: "<data-plane-token>"

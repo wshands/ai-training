@@ -173,8 +173,8 @@ const Landing = () => {
               <pre className="mt-4 rounded-2xl bg-slate-950 text-emerald-200 text-sm p-5 overflow-auto">
 {`helm repo add aitrainops https://wshands.github.io/aitrainops-charts
 helm install aitrainops-agent \\
-  --set orgId=org_123 \\
-  --set apiKey=token_abc`}
+  --set jobLauncher.dataPlaneTenantId=org_123 \\
+  --set jobLauncher.dataPlaneApiToken=token_abc`}
               </pre>
               <div className="mt-4 text-xs text-slate-500">
                 Works with EKS, GKE, AKS, or on-prem Kubernetes.
