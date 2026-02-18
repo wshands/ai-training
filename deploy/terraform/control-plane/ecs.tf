@@ -77,6 +77,7 @@ locals {
     CLERK_JWT_ALGORITHM  = var.clerk_jwt_algorithm
     CONTROL_PLANE_ADMIN_TOKEN = var.control_plane_admin_token
     DATA_PLANE_TENANT_ID = var.data_plane_tenant_id
+    CORS_ORIGINS         = var.cors_origins
   })
 }
 

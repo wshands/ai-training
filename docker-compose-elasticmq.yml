@@ -77,6 +77,7 @@ services:
       EVENT_BUS_PROVIDER: sqs
       SQS_ENDPOINT_URL: http://elasticmq:9324
       SQS_QUEUE_NAME: job-events.fifo
+      CORS_ORIGINS: http://localhost:3000
       AWS_REGION: us-west-2
       AWS_DEFAULT_REGION: us-west-2
       AWS_ACCESS_KEY_ID: dummy

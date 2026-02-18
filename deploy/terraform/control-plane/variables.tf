@@ -84,6 +84,12 @@ variable "log_level" {
   default     = "INFO"
 }
 
+variable "cors_origins" {
+  type        = string
+  description = "Comma-separated list of allowed CORS origins"
+  default     = ""
+}
+
 variable "clerk_jwks_url" {
   type        = string
   description = "Clerk JWKS URL"

@@ -217,18 +217,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Platform Control Plane", lifespan=lifespan)
 
 # Configure CORS
-origins = [
-    "http://localhost",        # Allow requests from localhost without a port (default port 80)
-    "http://localhost:3000",   # Your frontend application's origin
-    # Add any other origins where your frontend might be hosted, e.g.,
-    # "https://your-frontend-domain.com",
-]
+def _parse_cors_origins(raw: str) -> List[str]:
+    return [o.strip() for o in (raw or "").split(",") if o.strip()]
+
+cors_origins = _parse_cors_origins(os.getenv("CORS_ORIGINS", ""))
+allow_origins = cors_origins if cors_origins else ["*"]
+# Only allow credentials when origins are explicitly listed.
+allow_credentials = bool(cors_origins) and "*" not in allow_origins
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten for prod
-    #allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=allow_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -34,6 +34,7 @@ clerk_jwt_algorithm       = "RS256"
 control_plane_admin_token = ""
 alb_certificate_arn       = ""
 log_level                 = "INFO"
+cors_origins              = "https://example.com,https://ui.example.com"
 
 ui_bucket_name            = ""
 ui_domain_name            = "ui.example.com"
