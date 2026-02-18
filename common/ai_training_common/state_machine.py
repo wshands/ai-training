@@ -42,6 +42,7 @@ TRANSITIONS = {
         "JOB_FAILED": JobState.FAILED,
         "JOB_PREEMPTED": JobState.PREEMPTED,
         "JOB_CANCELLED": JobState.CANCELLED,
+        "JOB_ARTIFACTS_READY": JobState.RUNNING,
     },
     JobState.PREEMPTED: {
         "JOB_RESTARTED": JobState.RUNNING,

@@ -362,6 +362,7 @@ async def get_data_plane_identity(request: Request) -> DataPlaneContext:
 class TrainJobRequest(BaseModel):
     model_id: str
     dataset_id: str
+    dataset_uri: Optional[str] = None
     epochs: int = 1
     batch_size: int = 32
     lr: float = 1e-3
@@ -378,6 +379,7 @@ class JobConfig(BaseModel):
     user_id: str
     model_id: str
     dataset_id: str
+    dataset_uri: Optional[str] = None
     epochs: int
     batch_size: int
     lr: float
@@ -466,6 +468,7 @@ async def submit_training_job(
         user_id=user_id,
         model_id=req.model_id,
         dataset_id=req.dataset_id,
+        dataset_uri=req.dataset_uri,
         epochs=req.epochs,
         batch_size=req.batch_size,
         lr=req.lr,

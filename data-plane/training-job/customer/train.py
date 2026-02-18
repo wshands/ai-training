@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any, Dict, Callable
 
 import torch
@@ -96,4 +97,18 @@ async def run_training(
         await asyncio.sleep(0.1)
 
     await reporter.log("INFO", "Training completed successfully")
+    artifact_uri = (
+        cfg.get("artifact_uri")
+        or os.getenv("ARTIFACT_URI")
+        or f"s3://example-bucket/ai-trainops/artifacts/{job_id}/"
+    )
+    if not cfg.get("artifact_uri") and not os.getenv("ARTIFACT_URI"):
+        await reporter.log(
+            "INFO",
+            f"Emitting example artifact URI for demo: {artifact_uri}",
+        )
+    await reporter.artifacts_ready(
+        artifact_uri=str(artifact_uri),
+        dataset_uri=cfg.get("dataset_uri"),
+    )
     return 0

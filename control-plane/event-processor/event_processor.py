@@ -114,6 +114,40 @@ def _require_config_dict(raw_config: Any, job_id: str) -> Dict[str, Any]:
     raise RuntimeError(f"jobs.config for {job_id} is not a JSON object")
 
 
+async def _merge_artifact_update(
+    conn: asyncpg.Connection,
+    *,
+    job_id: str,
+    tenant_id: str,
+    details: Mapping[str, Any],
+) -> Optional[Dict[str, Any]]:
+    artifact_uri = details.get("artifact_uri")
+    dataset_uri = details.get("dataset_uri")
+    if not artifact_uri and not dataset_uri:
+        return None
+
+    row = await conn.fetchrow(
+        "SELECT config FROM jobs WHERE job_id = $1 AND tenant_id = $2",
+        job_id,
+        tenant_id,
+    )
+    if not row:
+        logger.warning(
+            "JOB_ARTIFACTS_READY received before jobs row exists; job_id=%s tenant_id=%s",
+            job_id,
+            tenant_id,
+        )
+        return None
+
+    current = _require_config_dict(row["config"], job_id)
+    merged = dict(current)
+    if artifact_uri:
+        merged["artifact_uri"] = artifact_uri
+    if dataset_uri:
+        merged["dataset_uri"] = dataset_uri
+    return merged
+
+
 async def wait_for_postgres(conn: asyncpg.Connection, timeout_s: int = 60) -> None:
     """Wait until the database responds to simple queries."""
     deadline = asyncio.get_event_loop().time() + timeout_s
@@ -521,7 +555,16 @@ async def process_event(conn: asyncpg.Connection, ev: JobEventIn) -> Optional[Jo
             seq,
         )
 
-        cfg = details.get("config") if event_type_enum == EventType.JOB_SUBMITTED else None
+        cfg: Optional[Dict[str, Any]] = None
+        if event_type_enum == EventType.JOB_SUBMITTED:
+            cfg = details.get("config")
+        elif event_type_enum == EventType.JOB_ARTIFACTS_READY:
+            cfg = await _merge_artifact_update(
+                conn,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                details=details,
+            )
         await apply_job_event_to_jobs_table(
             conn,
             job_id=job_id,

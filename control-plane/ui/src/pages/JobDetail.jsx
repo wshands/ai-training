@@ -66,6 +66,77 @@ const parseHistoryEvents = (events) => {
   return { logs, metrics, lastStatus, lastError, hasStep, hasEpoch };
 };
 
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+};
+
+const formatValue = (value) => {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const buildRunSummary = ({
+  jobId,
+  job,
+  cfg,
+  metrics,
+  lastError,
+  historyEvents,
+  historyHasMore,
+}) => {
+  const latestMetric = metrics.length ? metrics[metrics.length - 1] : null;
+  const datasetUri = cfg.dataset_uri || cfg.datasetUri || null;
+  const artifactUri = cfg.artifact_uri || cfg.artifactUri || null;
+  const displayName = cfg.display_name || cfg.extra_config?.display_name || null;
+  const notes = cfg.notes || cfg.extra_config?.notes || null;
+
+  return {
+    job_id: jobId,
+    status: job?.status || null,
+    model_id: cfg.model_id || job?.model_id || null,
+    dataset_id: cfg.dataset_id || job?.dataset_id || null,
+    dataset_uri: datasetUri,
+    artifact_uri: artifactUri,
+    display_name: displayName,
+    notes,
+    distributed: cfg.distributed ?? null,
+    epochs: cfg.epochs ?? null,
+    batch_size: cfg.batch_size ?? null,
+    learning_rate: cfg.lr ?? null,
+    retry_of: cfg.retry_of ?? null,
+    retry_attempt: cfg.retry_attempt ?? null,
+    created_at: job?.created_at || null,
+    submitted_at: job?.submitted_at || null,
+    updated_at: job?.updated_at || null,
+    metrics_last_loss: latestMetric?.loss ?? latestMetric?.metrics?.loss ?? null,
+    metrics_last_accuracy: latestMetric?.accuracy ?? latestMetric?.metrics?.accuracy ?? null,
+    metrics_points: metrics.length,
+    events_loaded: historyEvents.length,
+    events_partial: !!historyHasMore,
+    error: lastError || null,
+    generated_at: new Date().toISOString(),
+  };
+};
+
+const toCsvRow = (summary) => {
+  const keys = Object.keys(summary);
+  const escape = (value) => {
+    if (value === null || value === undefined) return '';
+    const str = typeof value === 'string' ? value : JSON.stringify(value);
+    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+  const header = keys.join(',');
+  const row = keys.map((key) => escape(summary[key])).join(',');
+  return `${header}\n${row}\n`;
+};
+
 const JobDetail = () => {
   const { jobId } = useParams();
   const navigate = useNavigate();
@@ -86,6 +157,7 @@ const JobDetail = () => {
   const [retentionDays, setRetentionDays] = useState(null);
   const [retentionSource, setRetentionSource] = useState('default');
   const [retentionDefault, setRetentionDefault] = useState(null);
+  const [showSummary, setShowSummary] = useState(false);
   const { role, loading: roleLoading } = useAppAuth();
   const canOperate = hasMinRole(role, 'operator');
 
@@ -345,6 +417,15 @@ const JobDetail = () => {
   if (!job) return null;
 
   const cfg = job.config || {};
+  const runSummary = buildRunSummary({
+    jobId,
+    job,
+    cfg,
+    metrics,
+    lastError,
+    historyEvents,
+    historyHasMore,
+  });
 
   return (
     <div className="space-y-4">
@@ -352,6 +433,13 @@ const JobDetail = () => {
         <div className="flex items-center justify-between gap-4 mb-1">
           <h1 className="text-xl font-semibold">Job {jobId}</h1>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-1.5 rounded-md border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
+              onClick={() => setShowSummary(true)}
+            >
+              Run summary
+            </button>
             {[JobState.SUBMITTED, JobState.PENDING, JobState.RETRYING, JobState.RUNNING].includes(job?.status) && (
               <button
                 type="button"
@@ -400,21 +488,41 @@ const JobDetail = () => {
         </div>
       )}
 
-      {(cfg.artifact_uri || cfg.artifactUri) && (
-        <div className="text-sm bg-slate-900/60 border border-slate-800 rounded-lg p-3">
+      {(cfg.dataset_uri || cfg.datasetUri || cfg.artifact_uri || cfg.artifactUri) && (
+        <div className="text-sm bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-3">
           <div className="text-xs uppercase tracking-wide text-slate-500">
-            Artifacts
+            Run references
           </div>
-          <div className="mt-2">
-            <a
-              className="text-sky-300 hover:text-sky-200 break-all"
-              href={cfg.artifact_uri || cfg.artifactUri}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {cfg.artifact_uri || cfg.artifactUri}
-            </a>
-          </div>
+          {(cfg.dataset_uri || cfg.datasetUri) && (
+            <div>
+              <div className="text-xs text-slate-400">Dataset URI</div>
+              <div className="mt-1">
+                <a
+                  className="text-sky-300 hover:text-sky-200 break-all"
+                  href={cfg.dataset_uri || cfg.datasetUri}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {cfg.dataset_uri || cfg.datasetUri}
+                </a>
+              </div>
+            </div>
+          )}
+          {(cfg.artifact_uri || cfg.artifactUri) && (
+            <div>
+              <div className="text-xs text-slate-400">Artifact URI</div>
+              <div className="mt-1">
+                <a
+                  className="text-sky-300 hover:text-sky-200 break-all"
+                  href={cfg.artifact_uri || cfg.artifactUri}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {cfg.artifact_uri || cfg.artifactUri}
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -544,6 +652,214 @@ const JobDetail = () => {
           {JSON.stringify(cfg, null, 2)}
         </pre>
       </details>
+
+      {showSummary && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-slate-950/70"
+            onClick={() => setShowSummary(false)}
+          />
+          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800 shadow-2xl overflow-y-auto">
+            <div className="p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">Run summary</h2>
+                  <div className="text-xs text-slate-500">
+                    Lightweight, exportable run record for audit and reproducibility.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-slate-200"
+                  onClick={() => setShowSummary(false)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md bg-sky-500 text-sm font-medium hover:bg-sky-400"
+                  onClick={() => {
+                    const blob = new Blob([JSON.stringify(runSummary, null, 2)], {
+                      type: 'application/json',
+                    });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `run-summary-${jobId}.json`;
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                  }}
+                >
+                  Download JSON
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
+                  onClick={() => {
+                    const csv = toCsvRow(runSummary);
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `run-summary-${jobId}.csv`;
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                  }}
+                >
+                  Download CSV
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
+                    Identity
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400">Job ID</div>
+                    <div className="font-mono break-all">{jobId}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-slate-400">Status</div>
+                      <div>{formatValue(runSummary.status)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">Model</div>
+                      <div>{formatValue(runSummary.model_id)}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-slate-400">Dataset</div>
+                      <div>{formatValue(runSummary.dataset_id)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">Distributed</div>
+                      <div>{formatValue(runSummary.distributed)}</div>
+                    </div>
+                  </div>
+                  {runSummary.display_name && (
+                    <div>
+                      <div className="text-xs text-slate-400">Display name</div>
+                      <div>{formatValue(runSummary.display_name)}</div>
+                    </div>
+                  )}
+                  {runSummary.notes && (
+                    <div>
+                      <div className="text-xs text-slate-400">Notes</div>
+                      <div className="whitespace-pre-wrap break-words">
+                        {formatValue(runSummary.notes)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
+                    Data & artifacts
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400">Dataset URI</div>
+                    {runSummary.dataset_uri ? (
+                      <a
+                        className="text-sky-300 hover:text-sky-200 break-all"
+                        href={runSummary.dataset_uri}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {runSummary.dataset_uri}
+                      </a>
+                    ) : (
+                      <div>—</div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400">Artifact URI</div>
+                    {runSummary.artifact_uri ? (
+                      <a
+                        className="text-sky-300 hover:text-sky-200 break-all"
+                        href={runSummary.artifact_uri}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {runSummary.artifact_uri}
+                      </a>
+                    ) : (
+                      <div>—</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
+                    Timing
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-slate-400">Created</div>
+                      <div>{formatDateTime(runSummary.created_at)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">Submitted</div>
+                      <div>{formatDateTime(runSummary.submitted_at)}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400">Last update</div>
+                    <div>{formatDateTime(runSummary.updated_at)}</div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
+                    Metrics snapshot
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-slate-400">Last loss</div>
+                      <div>{formatValue(runSummary.metrics_last_loss)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400">Last accuracy</div>
+                      <div>{formatValue(runSummary.metrics_last_accuracy)}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400">Metric points</div>
+                    <div>{formatValue(runSummary.metrics_points)}</div>
+                  </div>
+                </div>
+
+                {runSummary.error && (
+                  <div className="bg-rose-950/40 border border-rose-800 rounded-lg p-3 space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-rose-300">
+                      Error
+                    </div>
+                    <pre className="text-xs whitespace-pre-wrap break-words text-rose-200">
+                      {JSON.stringify(runSummary.error, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
+                    Export metadata
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-400">
+                    <div>Events loaded: {formatValue(runSummary.events_loaded)}</div>
+                    <div>Partial: {formatValue(runSummary.events_partial)}</div>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    Generated at {formatDateTime(runSummary.generated_at)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

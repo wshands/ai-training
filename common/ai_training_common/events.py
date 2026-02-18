@@ -22,6 +22,7 @@ class EventType(str, Enum):
     JOB_CANCELLED = "JOB_CANCELLED"
     JOB_FAILED = "JOB_FAILED"
     JOB_COMPLETED = "JOB_COMPLETED"
+    JOB_ARTIFACTS_READY = "JOB_ARTIFACTS_READY"
 
 
 class JobEventIn(BaseModel):

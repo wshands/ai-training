@@ -32,6 +32,31 @@ AiTrainOps is a control‑plane + data‑plane platform for running GPU training
 5) Training jobs emit events/logs/metrics to the control‑plane.
 6) UI receives live updates via WebSocket streams.
 
+## UI job submission fields (dataset/artifact URIs)
+The New Job UI exposes optional fields that help with provenance and traceability:
+
+- `dataset_uri` — where the input data lives (e.g., `s3://bucket/datasets/run-42/`)
+- `artifact_uri` — where outputs should be written or where artifacts will appear
+
+Example (payload excerpt):
+
+```json
+{
+  "job_id": "uuid",
+  "model_id": "resnet50",
+  "dataset_uri": "s3://customer-datasets/imagenet-v1/",
+  "artifact_uri": "s3://customer-artifacts/models/run-1234/",
+  "epochs": 5
+}
+```
+
+Notes:
+- `artifact_uri` can be set at submit time or later by the training job via
+  `JOB_ARTIFACTS_READY`. This allows the job to determine the final output
+  path after it starts running.
+- These URIs are stored as pointers only; data remains in the customer’s
+  storage.
+
 ## Security model
 - **User auth** via Clerk JWTs (org‑scoped tenancy).
 - **RBAC** via Clerk org roles (admin/operator/viewer) enforced at the API and UI.
@@ -57,6 +82,7 @@ This architecture gives customers the benefits of a SaaS control‑plane without
 - Job submission + cancellation
 - Event‑driven state tracking
 - Live logs and metrics in the UI
+- Run summary export (JSON/CSV) for audit and reproducibility
 - Multi‑tenant auth
 - Data‑plane job launcher for Kubernetes
 - Admin audit export (job events + admin actions)

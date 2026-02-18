@@ -58,3 +58,10 @@ so you can sort them together.
 - The export endpoint requires **Admin** role.
 - The audit log is stored in Postgres and can be retained per tenant using the
   retention settings.
+
+## Run summary export (job detail)
+
+The job detail UI also provides a **Run summary** drawer with export buttons.
+This summary is a lightweight, immutable record of a single run (job metadata,
+dataset/artifact URIs, timestamps, and a metrics snapshot). It is intended for
+compliance and reproducibility without storing full artifacts in the control‑plane.

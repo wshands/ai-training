@@ -12,6 +12,7 @@ const NewJobWizard = () => {
   const [form, setForm] = useState({
     modelId: '',
     datasetId: '',
+    datasetUri: '',
     epochs: 1,
     batchSize: 32,
     learningRate: 0.001,
@@ -38,6 +39,7 @@ const NewJobWizard = () => {
       const payload = {
         model_id: form.modelId,
         dataset_id: form.datasetId,
+        dataset_uri: form.datasetUri || undefined,
         epochs: Number(form.epochs),
         batch_size: Number(form.batchSize),
         lr: Number(form.learningRate),
@@ -96,6 +98,9 @@ const NewJobWizard = () => {
                 onChange={(e) => updateField('modelId', e.target.value)}
                 placeholder="e.g. resnet50-v1"
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Identifier for the model or training recipe you want to run.
+              </div>
             </div>
             <div>
               <label className="block text-sm mb-1">Dataset ID</label>
@@ -105,6 +110,21 @@ const NewJobWizard = () => {
                 onChange={(e) => updateField('datasetId', e.target.value)}
                 placeholder="e.g. imagenet-1k"
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Short label for the dataset version used in this run.
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Dataset URI (optional)</label>
+              <input
+                className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={form.datasetUri}
+                onChange={(e) => updateField('datasetUri', e.target.value)}
+                placeholder="e.g. s3://bucket/datasets/imagenet"
+              />
+              <div className="mt-2 text-xs text-slate-500">
+                A pointer to the dataset location used for this run.
+              </div>
             </div>
           </>
         )}
@@ -120,6 +140,9 @@ const NewJobWizard = () => {
                 value={form.epochs}
                 onChange={(e) => updateField('epochs', e.target.value)}
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Total passes over the training dataset.
+              </div>
             </div>
             <div>
               <label className="block text-sm mb-1">Batch size</label>
@@ -130,6 +153,9 @@ const NewJobWizard = () => {
                 value={form.batchSize}
                 onChange={(e) => updateField('batchSize', e.target.value)}
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Number of samples per training step.
+              </div>
             </div>
             <div>
               <label className="block text-sm mb-1">Learning rate</label>
@@ -140,6 +166,9 @@ const NewJobWizard = () => {
                 value={form.learningRate}
                 onChange={(e) => updateField('learningRate', e.target.value)}
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Optimizer step size (e.g. 0.001).
+              </div>
             </div>
             <div className="md:col-span-3">
               <label className="inline-flex gap-2 items-center text-sm">
@@ -150,6 +179,9 @@ const NewJobWizard = () => {
                 />
                 <span>Distributed (multi-GPU / multi-node)</span>
               </label>
+              <div className="mt-2 text-xs text-slate-500">
+                Enable if your training code supports distributed execution.
+              </div>
             </div>
           </div>
         )}
@@ -176,6 +208,9 @@ const NewJobWizard = () => {
                 onChange={(e) => updateField('displayName', e.target.value)}
                 placeholder="Optional friendly name"
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Friendly label shown in the job list and detail view.
+              </div>
             </div>
             <div>
               <label className="block text-sm mb-1">Notes</label>
@@ -186,6 +221,9 @@ const NewJobWizard = () => {
                 onChange={(e) => updateField('notes', e.target.value)}
                 placeholder="Optional run notes / ticket IDs"
               />
+              <div className="mt-2 text-xs text-slate-500">
+                Free-form context such as experiments or incident references.
+              </div>
             </div>
           </>
         )}

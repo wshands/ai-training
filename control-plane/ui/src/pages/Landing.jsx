@@ -22,8 +22,8 @@ const Landing = () => {
               <p className="mt-5 text-lg text-slate-700">
                 AiTrainOps gives you orchestration, live logs, and audit trails for
                 Kubernetes training workloads. Built-in retries, role-based access,
-                and an admin console for token lifecycle + retention keep every run
-                safe and resilient.
+                and exportable run summaries keep every run safe, traceable, and
+                audit-ready.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
@@ -64,7 +64,7 @@ const Landing = () => {
                   },
                   {
                     title: 'Our control plane',
-                    body: 'Submit jobs, stream logs, and keep a reliable job history with audit trails.',
+                    body: 'Submit jobs, stream logs, and export run summaries alongside audit trails.',
                   },
                   {
                     title: 'One install',
@@ -88,7 +88,7 @@ const Landing = () => {
             {[
               {
                 title: 'Job orchestration',
-                body: 'Reliable state transitions, retries with backoff, cancellations, and audit history.',
+                body: 'Reliable state transitions, retries with backoff, cancellations, and run summaries.',
               },
               {
                 title: 'Live observability',
@@ -100,7 +100,7 @@ const Landing = () => {
               },
               {
                 title: 'Admin controls',
-                body: 'Manage users, mint/revoke data-plane tokens, export audit history, and set retention.',
+                body: 'Manage users, mint/revoke data-plane tokens, export run summaries, and set retention.',
               },
             ].map((item) => (
               <div key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -147,6 +147,10 @@ const Landing = () => {
                 <div className="flex gap-3">
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
                   Keep a complete audit trail for compliance
+                </div>
+                <div className="flex gap-3">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                  Export immutable run summaries (JSON/CSV)
                 </div>
                 <div className="flex gap-3">
                   <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />

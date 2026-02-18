@@ -133,6 +133,19 @@ class JobReporter:
     async def epoch_metric(self, epoch: int, metrics: Dict[str, Any]) -> None:
         await self.emit(EventType.EPOCH_METRIC, epoch=epoch, metrics=metrics)
 
+    async def artifacts_ready(
+        self,
+        artifact_uri: str,
+        dataset_uri: str | None = None,
+        metadata: Dict[str, Any] | None = None,
+    ) -> None:
+        payload: Dict[str, Any] = {"artifact_uri": artifact_uri}
+        if dataset_uri:
+            payload["dataset_uri"] = dataset_uri
+        if metadata:
+            payload["metadata"] = metadata
+        await self.emit(EventType.JOB_ARTIFACTS_READY, **payload)
+
     async def failed(self, message: str, error_type: str | None = None) -> None:
         if self._terminal_sent:
             return

@@ -21,6 +21,8 @@ Example (excerpt):
   "user_id": "user_456",
   "model_id": "resnet50",
   "dataset_id": "imagenet",
+  "dataset_uri": "s3://customer-datasets/imagenet-v1/",
+  "artifact_uri": "s3://customer-artifacts/models/run-1234/",
   "epochs": 5,
   "batch_size": 32,
   "lr": 0.001,
@@ -62,8 +64,12 @@ Required event types:
 - `JOB_LOG` — log messages
 - `EPOCH_METRIC` — per-epoch metrics
 - `JOB_METRIC` — aggregate metrics (optional)
+- `JOB_ARTIFACTS_READY` — artifacts are available (optional)
 - `JOB_FAILED` — fatal errors
 - `JOB_COMPLETED` — success
+
+`dataset_uri` and `artifact_uri` may be set in the submitted config or emitted
+later by the training job using `JOB_ARTIFACTS_READY`.
 
 ### Example event payload (JOB_LOG)
 
@@ -81,6 +87,26 @@ Required event types:
   "payload": {
     "level": "INFO",
     "message": "Epoch 1 started"
+  }
+}
+```
+
+### Example event payload (JOB_ARTIFACTS_READY)
+
+```json
+{
+  "schema_version": 1,
+  "event_id": "uuid",
+  "event_type": "JOB_ARTIFACTS_READY",
+  "job_id": "uuid",
+  "tenant_id": "org_123",
+  "user_id": "user_456",
+  "seq": 12,
+  "ts_ms": 1700000000000,
+  "producer": "training-job",
+  "payload": {
+    "artifact_uri": "s3://customer-artifacts/models/run-1234/",
+    "dataset_uri": "s3://customer-datasets/imagenet-v1/"
   }
 }
 ```
