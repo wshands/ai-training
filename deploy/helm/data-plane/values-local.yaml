@@ -7,6 +7,6 @@ jobLauncher:
   trainingImage: bigdog/ai-training-job:latest
   trainingNamespace: "training-jobs"
   controlPlaneUrl: "http://host.docker.internal:8000"
-  dataPlaneApiToken: "<local-dev-token"
+  dataPlaneApiToken: "<local-dev-token>"
   dataPlaneTenantId: "<tenant-id>"
   httpxLogLevel: "WARNING"
