@@ -48,7 +48,6 @@ from fastapi.responses import Response, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from kubernetes import client, config as k8s_config
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager
@@ -59,7 +58,6 @@ from jwt import PyJWKClientError
 from common.ai_training_common.config import (
     TRAINING_NAMESPACE,
     TRAINING_IMAGE,
-    CUSTOMER_KUBECONFIG,
     REDIS_URL,
     EVENT_RETENTION_DAYS,
     CLERK_JWKS_URL,
@@ -72,6 +70,7 @@ from common.ai_training_common.config import (
     JOB_LOCK_TIMEOUT_SECONDS,
     CONTROL_PLANE_ADMIN_TOKEN,
 )
+from common.ai_training_common.state_machine import JobState
 from .event_bus import init_event_bus, close_event_bus, send_event
 from common.ai_training_common.db import (
     init_db,
@@ -95,19 +94,6 @@ from common.ai_training_common.db import (
     fetch_admin_audit_events,
 )
 from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
-
-
-class JobState(str, Enum):
-    SUBMITTED = "SUBMITTED"
-    PENDING = "PENDING"
-    RETRYING = "RETRYING"
-    RUNNING = "RUNNING"
-    PREEMPTED = "PREEMPTED"
-    SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
-    UNKNOWN = "UNKNOWN"
-    COMPLETED = "COMPLETED"
 
 
 class JobSummary(BaseModel):
@@ -406,11 +392,6 @@ class DataPlaneTokenSelfRequest(BaseModel):
 class RetentionSettingsUpdate(BaseModel):
     event_retention_days: Optional[int] = Field(default=None, ge=0, le=3650)
 
-
-def load_k8s_clients():
-    """Load kubeconfig and return Kubernetes API clients."""
-    k8s_config.load_kube_config(CUSTOMER_KUBECONFIG)
-    return client.BatchV1Api(), client.CoreV1Api()
 
 # create one shared Redis connection pool per process
 redis_client: redis.Redis | None = None
@@ -1090,7 +1071,7 @@ async def ws_jobs_stream(websocket: WebSocket):
 
     try:
         async for message in pubsub.listen():
-            if message["type"] != "pmessage":
+            if message["type"] != "message":
                 continue
 
             raw = message["data"]
