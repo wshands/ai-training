@@ -20,7 +20,7 @@ const Landing = () => {
                 <span className="landing-serif text-amber-700"> without the MLOps sprawl.</span>
               </h1>
               <p className="mt-5 text-lg text-slate-700">
-                AiTrainOps gives you orchestration, live logs, and audit trails for
+                AITrainOps gives you orchestration, live logs, and audit trails for
                 Kubernetes training workloads. Built-in retries, role-based access,
                 and exportable run summaries keep every run safe, traceable, and
                 audit-ready.
@@ -123,7 +123,7 @@ const Landing = () => {
                 A control plane that respects your boundary.
               </h2>
               <p className="mt-4 text-slate-700">
-                Install the AiTrainOps agent once. Every training job stays in your
+                Install the AITrainOps agent once. Every training job stays in your
                 cluster, while the control plane keeps the metadata, logs, and history
                 you need to operate reliably.
               </p>
@@ -191,7 +191,7 @@ helm install aitrainops-agent \\
               <h3 className="text-2xl font-semibold">Built for private ML teams</h3>
               <p className="mt-3 text-slate-600">
                 Teams in biotech, finance, healthcare, and enterprise SaaS choose
-                AiTrainOps because it works with their security posture from day one.
+                AITrainOps because it works with their security posture from day one.
               </p>
               <div className="mt-6 grid grid-cols-2 gap-3 text-sm text-slate-700">
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1">
@@ -231,7 +231,7 @@ helm install aitrainops-agent \\
             </div>
           </div>
           <div className="mt-10 border-t border-slate-200 pt-6 text-xs text-slate-500">
-            © 2026 AiTrainOps. Private training orchestration for Kubernetes teams.
+            © 2026 AITrainOps. Private training orchestration for Kubernetes teams.
           </div>
         </div>
       </section>

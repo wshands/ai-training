@@ -1,7 +1,7 @@
 # AI Training Platform – Overview
 
 ## What it is
-AiTrainOps is a control‑plane + data‑plane platform for running GPU training jobs in a customer’s cloud while keeping centralized orchestration, observability, and auditability in a vendor‑hosted control‑plane. Customers keep data and compute inside their own AWS account/VPC, while the vendor provides scheduling, job lifecycle management, live logs/metrics, and a web UI.
+AITrainOps is a control‑plane + data‑plane platform for running GPU training jobs in a customer’s cloud while keeping centralized orchestration, observability, and auditability in a vendor‑hosted control‑plane. Customers keep data and compute inside their own AWS account/VPC, while the vendor provides scheduling, job lifecycle management, live logs/metrics, and a web UI.
 
 ## Core goals
 - **Run training jobs in customer VPCs** without data egress.

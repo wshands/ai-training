@@ -1,6 +1,6 @@
 # Audit Log & Export
 
-AiTrainOps maintains two audit streams per tenant:
+AITrainOps maintains two audit streams per tenant:
 
 1) **Job lifecycle events** (`job_events`)
    - Job submission, start, logs, metrics, success/failure, and state changes.

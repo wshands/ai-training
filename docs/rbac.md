@@ -1,6 +1,6 @@
 # RBAC (Role-Based Access Control)
 
-AiTrainOps enforces organization-scoped RBAC using **Clerk org roles**. Roles are
+AITrainOps enforces organization-scoped RBAC using **Clerk org roles**. Roles are
 read from the Clerk session and normalized into one of:
 
 - `admin`

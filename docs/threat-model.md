@@ -1,6 +1,6 @@
 # Threat Model (MVP)
 
-This document describes the initial threat model for AiTrainOps and the
+This document describes the initial threat model for AITrainOps and the
 security boundaries of the control‑plane and data‑plane.
 
 ## System boundaries
@@ -64,4 +64,3 @@ security boundaries of the control‑plane and data‑plane.
 - Private connectivity options (VPC endpoints / PrivateLink).
 - Dedicated tenant encryption keys for audit/event storage.
 - WAF / rate‑limit controls on public API.
-
