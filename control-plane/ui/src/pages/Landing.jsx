@@ -27,13 +27,13 @@ const Landing = () => {
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
-                  to="/register"
+                  to="mailto:admin@aitrainops.com"
                   className="px-5 py-2 rounded-full bg-emerald-600 text-white hover:bg-emerald-500"
                 >
                   Get early access
                 </Link>
                 <a
-                  href="mailto:hello@aitrainops.com"
+                  href="mailto:admin@aitrainops.com"
                   className="px-5 py-2 rounded-full border border-slate-300 text-slate-700 hover:border-slate-500"
                 >
                   Talk to us
@@ -216,7 +216,7 @@ helm install aitrainops-agent \\
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link
-                  to="/register"
+                  to="mailto:admin@aitrainops.com"
                   className="px-5 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800"
                 >
                   Request a demo
