@@ -39,6 +39,7 @@ import secrets
 import hashlib
 import hmac
 import redis.asyncio as redis
+import stripe
 
 from datetime import datetime
 from enum import Enum
@@ -69,6 +70,10 @@ from common.ai_training_common.config import (
     DATA_PLANE_TOKEN_PEPPER,
     JOB_LOCK_TIMEOUT_SECONDS,
     CONTROL_PLANE_ADMIN_TOKEN,
+    STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET,
+    STRIPE_PRICE_ID,
+    BILLING_ENFORCEMENT,
 )
 from common.ai_training_common.state_machine import JobState
 from .event_bus import init_event_bus, close_event_bus, send_event
@@ -92,6 +97,10 @@ from common.ai_training_common.db import (
     fetch_audit_events,
     insert_admin_audit_event,
     fetch_admin_audit_events,
+    upsert_tenant_billing,
+    update_billing_by_subscription,
+    update_billing_by_customer,
+    fetch_tenant_billing,
 )
 from common.ai_training_common.events import JobEventIn, JobEventOut, EventType
 
@@ -117,6 +126,17 @@ def _require_config_dict(raw_config: Any, job_id: str) -> Dict[str, Any]:
         status_code=500,
         detail=f"Job config for {job_id} is not a JSON object. Recreate the job.",
     )
+
+
+def _require_stripe_config() -> None:
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+
+def _require_stripe_price() -> str:
+    if not STRIPE_PRICE_ID:
+        raise HTTPException(status_code=500, detail="Stripe price is not configured")
+    return STRIPE_PRICE_ID
 
 
 class AuthContext(BaseModel):
@@ -151,28 +171,13 @@ ROLE_ORDER = {
     OrgRole.ADMIN: 3,
 }
 
+PAID_STATUSES = {"active", "trialing", "past_due"}
+
 
 def normalize_role(raw_role: Optional[str]) -> OrgRole:
     if not raw_role:
         return OrgRole.VIEWER
     return ROLE_ALIASES.get(raw_role, OrgRole.VIEWER)
-
-
-def require_min_role(min_role: OrgRole):
-    def checker(identity: AuthContext = Depends(get_current_identity)) -> AuthContext:
-        role = normalize_role(identity.role)
-        if ROLE_ORDER[role] < ROLE_ORDER[min_role]:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
-        return identity
-
-    return checker
-
-
-def enforce_min_role(identity: AuthContext, min_role: OrgRole) -> None:
-    role = normalize_role(identity.role)
-    if ROLE_ORDER[role] < ROLE_ORDER[min_role]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
-
 
 class DataPlaneContext(BaseModel):
     tenant_id: str
@@ -201,6 +206,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Platform Control Plane", lifespan=lifespan)
+
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
 # Configure CORS
 def _parse_cors_origins(raw: str) -> List[str]:
@@ -295,6 +303,44 @@ def get_ws_identity(websocket: WebSocket) -> AuthContext:
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
     return decode_clerk_token(token)
+
+
+def require_min_role(min_role: OrgRole):
+    def checker(identity: AuthContext = Depends(get_current_identity)) -> AuthContext:
+        role = normalize_role(identity.role)
+        if ROLE_ORDER[role] < ROLE_ORDER[min_role]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+        return identity
+
+    return checker
+
+
+def enforce_min_role(identity: AuthContext, min_role: OrgRole) -> None:
+    role = normalize_role(identity.role)
+    if ROLE_ORDER[role] < ROLE_ORDER[min_role]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+
+
+async def _ensure_paid(identity: AuthContext) -> AuthContext:
+    if not BILLING_ENFORCEMENT:
+        return identity
+    billing = await fetch_tenant_billing(identity.tenant_id)
+    status_value = billing["status"] if billing else None
+    if status_value not in PAID_STATUSES:
+        raise HTTPException(status_code=402, detail="Subscription required")
+    return identity
+
+
+async def require_paid_operator(
+    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
+) -> AuthContext:
+    return await _ensure_paid(identity)
+
+
+async def require_paid_admin(
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+) -> AuthContext:
+    return await _ensure_paid(identity)
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -393,6 +439,24 @@ class RetentionSettingsUpdate(BaseModel):
     event_retention_days: Optional[int] = Field(default=None, ge=0, le=3650)
 
 
+class BillingCheckoutRequest(BaseModel):
+    return_url: Optional[str] = None
+
+
+class BillingPortalRequest(BaseModel):
+    return_url: Optional[str] = None
+
+
+class BillingStatusResponse(BaseModel):
+    tenant_id: str
+    status: Optional[str] = None
+    current_period_end: Optional[datetime] = None
+    cancel_at_period_end: bool = False
+    stripe_customer_id: Optional[str] = None
+    stripe_subscription_id: Optional[str] = None
+    stripe_price_id: Optional[str] = None
+
+
 # create one shared Redis connection pool per process
 redis_client: redis.Redis | None = None
 
@@ -432,10 +496,216 @@ async def retention_settings(identity: AuthContext = Depends(require_min_role(Or
     }
 
 
+@app.post("/billing/checkout")
+async def billing_checkout(
+    req: BillingCheckoutRequest,
+    request: Request,
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Create a Stripe Checkout session for subscriptions."""
+    _require_stripe_config()
+    price_id = _require_stripe_price()
+
+    billing = await fetch_tenant_billing(identity.tenant_id)
+    customer_id = billing["stripe_customer_id"] if billing else None
+    return_url = req.return_url or request.headers.get("origin") or "https://aitrainops.com"
+
+    session_params = {
+        "mode": "subscription",
+        "line_items": [{"price": price_id, "quantity": 1}],
+        "success_url": f"{return_url}?billing=success",
+        "cancel_url": f"{return_url}?billing=cancel",
+        "client_reference_id": identity.tenant_id,
+        "metadata": {"tenant_id": identity.tenant_id, "user_id": identity.user_id},
+        "subscription_data": {"metadata": {"tenant_id": identity.tenant_id}},
+    }
+    if customer_id:
+        session_params["customer"] = customer_id
+
+    session = stripe.checkout.Session.create(**session_params)
+    return {"url": session.url}
+
+
+@app.post("/billing/portal")
+async def billing_portal(
+    req: BillingPortalRequest,
+    request: Request,
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Create a Stripe Customer Portal session."""
+    _require_stripe_config()
+    billing = await fetch_tenant_billing(identity.tenant_id)
+    if not billing or not billing.get("stripe_customer_id"):
+        raise HTTPException(status_code=400, detail="No Stripe customer found for tenant")
+
+    return_url = req.return_url or request.headers.get("origin") or "https://aitrainops.com"
+    session = stripe.billing_portal.Session.create(
+        customer=billing["stripe_customer_id"],
+        return_url=return_url,
+    )
+    return {"url": session.url}
+
+
+@app.get("/billing/status", response_model=BillingStatusResponse)
+async def billing_status(
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Return billing status for the tenant."""
+    billing = await fetch_tenant_billing(identity.tenant_id)
+    if not billing:
+        return BillingStatusResponse(
+            tenant_id=identity.tenant_id,
+            status=None,
+            current_period_end=None,
+            cancel_at_period_end=False,
+            stripe_customer_id=None,
+            stripe_subscription_id=None,
+            stripe_price_id=None,
+        )
+    return BillingStatusResponse(
+        tenant_id=identity.tenant_id,
+        status=billing["status"],
+        current_period_end=billing["current_period_end"],
+        cancel_at_period_end=bool(billing["cancel_at_period_end"]),
+        stripe_customer_id=billing["stripe_customer_id"],
+        stripe_subscription_id=billing["stripe_subscription_id"],
+        stripe_price_id=billing["stripe_price_id"],
+    )
+
+
+@app.post("/billing/sync", response_model=BillingStatusResponse)
+async def billing_sync(
+    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+):
+    """Re-sync billing state by searching Stripe for the tenant metadata."""
+    _require_stripe_config()
+
+    query = f"metadata['tenant_id']:'{identity.tenant_id}'"
+    try:
+        result = stripe.Subscription.search(query=query, limit=10)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Stripe search failed: {e}")
+
+    subscriptions = getattr(result, "data", []) or []
+    if not subscriptions:
+        raise HTTPException(status_code=404, detail="No Stripe subscription found for tenant")
+
+    preferred = [sub for sub in subscriptions if sub.get("status") in PAID_STATUSES]
+    candidates = preferred or subscriptions
+    sub = sorted(candidates, key=lambda s: s.get("created", 0), reverse=True)[0]
+
+    items = (sub.get("items") or {}).get("data") or []
+    price_id = items[0]["price"]["id"] if items else None
+    status_value = sub.get("status")
+    current_period_end = sub.get("current_period_end")
+    cancel_at_period_end = sub.get("cancel_at_period_end")
+    subscription_id = sub.get("id")
+    customer_id = sub.get("customer")
+
+    await upsert_tenant_billing(
+        identity.tenant_id,
+        stripe_customer_id=customer_id,
+        stripe_subscription_id=subscription_id,
+        stripe_price_id=price_id,
+        status=status_value,
+        current_period_end=current_period_end,
+        cancel_at_period_end=cancel_at_period_end,
+    )
+    billing = await fetch_tenant_billing(identity.tenant_id)
+    return BillingStatusResponse(
+        tenant_id=identity.tenant_id,
+        status=billing["status"],
+        current_period_end=billing["current_period_end"],
+        cancel_at_period_end=bool(billing["cancel_at_period_end"]),
+        stripe_customer_id=billing["stripe_customer_id"],
+        stripe_subscription_id=billing["stripe_subscription_id"],
+        stripe_price_id=billing["stripe_price_id"],
+    )
+
+
+@app.post("/billing/webhook")
+async def stripe_webhook(request: Request):
+    """Stripe webhook receiver for subscription lifecycle events."""
+    _require_stripe_config()
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Stripe webhook secret not configured")
+
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    if not sig_header:
+        raise HTTPException(status_code=400, detail="Missing Stripe signature")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+
+    event_type = event.get("type")
+    obj = event.get("data", {}).get("object", {})
+
+    if event_type == "checkout.session.completed":
+        tenant_id = obj.get("client_reference_id") or obj.get("metadata", {}).get("tenant_id")
+        if tenant_id:
+            subscription_id = obj.get("subscription")
+            customer_id = obj.get("customer")
+            price_id = None
+            status = None
+            current_period_end = None
+            cancel_at_period_end = None
+            if subscription_id:
+                sub = stripe.Subscription.retrieve(subscription_id, expand=["items.data.price"])
+                items = (sub.get("items") or {}).get("data") or []
+                price_id = items[0]["price"]["id"] if items else None
+                status = sub.get("status")
+                current_period_end = sub.get("current_period_end")
+                cancel_at_period_end = sub.get("cancel_at_period_end")
+            await upsert_tenant_billing(
+                tenant_id,
+                stripe_customer_id=customer_id,
+                stripe_subscription_id=subscription_id,
+                stripe_price_id=price_id,
+                status=status,
+                current_period_end=current_period_end,
+                cancel_at_period_end=cancel_at_period_end,
+            )
+    elif event_type in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        subscription_id = obj.get("id")
+        customer_id = obj.get("customer")
+        items = (obj.get("items") or {}).get("data") or []
+        price_id = items[0]["price"]["id"] if items else None
+        status = obj.get("status")
+        current_period_end = obj.get("current_period_end")
+        cancel_at_period_end = obj.get("cancel_at_period_end")
+        if subscription_id:
+            await update_billing_by_subscription(
+                subscription_id,
+                stripe_price_id=price_id,
+                status=status,
+                current_period_end=current_period_end,
+                cancel_at_period_end=cancel_at_period_end,
+            )
+        if customer_id:
+            await update_billing_by_customer(
+                customer_id,
+                stripe_price_id=price_id,
+                status=status,
+                current_period_end=current_period_end,
+                cancel_at_period_end=cancel_at_period_end,
+            )
+
+    return {"ok": True}
+
+
 @app.post("/jobs/train")
 async def submit_training_job(
     req: TrainJobRequest,
-    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
+    identity: AuthContext = Depends(require_paid_operator),
 ):
     """Create a new job record and emit a submission event."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
@@ -487,7 +757,7 @@ async def submit_training_job(
 @app.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: str,
-    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
+    identity: AuthContext = Depends(require_paid_operator),
 ):
     """Emit a cancellation event for a job."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
@@ -516,7 +786,7 @@ async def cancel_job(
 @app.post("/jobs/{job_id}/retry")
 async def retry_job(
     job_id: str,
-    identity: AuthContext = Depends(require_min_role(OrgRole.OPERATOR)),
+    identity: AuthContext = Depends(require_paid_operator),
 ):
     """Create a new job based on a previous job's config."""
     tenant_id, user_id = identity.tenant_id, identity.user_id
@@ -798,7 +1068,7 @@ async def list_self_data_plane_tokens(
 @app.post("/admin/data-plane-tokens")
 async def mint_self_data_plane_token(
     req: DataPlaneTokenSelfRequest,
-    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+    identity: AuthContext = Depends(require_paid_admin),
 ):
     """Mint a data-plane token for the current tenant (admin role)."""
     token = req.token or secrets.token_urlsafe(32)
@@ -828,7 +1098,7 @@ async def mint_self_data_plane_token(
 @app.delete("/admin/data-plane-tokens/{token_id}")
 async def revoke_self_data_plane_token(
     token_id: str,
-    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+    identity: AuthContext = Depends(require_paid_admin),
 ):
     """Revoke a data-plane token for the current tenant (admin role)."""
     revoked = await revoke_data_plane_token_db(
@@ -869,7 +1139,7 @@ async def get_retention_settings_admin(
 @app.put("/admin/settings/retention")
 async def update_retention_settings_admin(
     req: RetentionSettingsUpdate,
-    identity: AuthContext = Depends(require_min_role(OrgRole.ADMIN)),
+    identity: AuthContext = Depends(require_paid_admin),
 ):
     """Update retention settings for the current tenant (admin)."""
     previous = await get_event_retention_days(identity.tenant_id)

@@ -98,3 +98,4 @@ See also:
 - `docs/architecture-overview.md`
 - `docs/data-plane-auth.md`
 - `docs/job-queueing.md`
+- `docs/billing.md`

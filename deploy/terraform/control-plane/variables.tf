@@ -90,6 +90,38 @@ variable "cors_origins" {
   default     = ""
 }
 
+variable "stripe_secret_key" {
+  type        = string
+  description = "Stripe secret key"
+  sensitive   = true
+  default     = ""
+}
+
+variable "stripe_secret_key_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN for Stripe secret key (optional)"
+  default     = ""
+}
+
+variable "stripe_webhook_secret" {
+  type        = string
+  description = "Stripe webhook signing secret"
+  sensitive   = true
+  default     = ""
+}
+
+variable "stripe_webhook_secret_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN for Stripe webhook secret (optional)"
+  default     = ""
+}
+
+variable "stripe_price_id" {
+  type        = string
+  description = "Stripe price ID for subscriptions"
+  default     = ""
+}
+
 variable "clerk_jwks_url" {
   type        = string
   description = "Clerk JWKS URL"

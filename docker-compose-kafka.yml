@@ -107,6 +107,8 @@ services:
     build:
       context: .
       dockerfile: control-plane/api/Dockerfile.dev   # 👈 only in dev compose
+    env_file:
+      - .env.local
     environment:
       KAFKA_BOOTSTRAP: kafka:9092   # FIXED
       POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/controlplane
@@ -130,6 +132,7 @@ services:
       # DATA_PLANE_API_TOKENS: '{"org_123":["token-a","token-b"],"org_456":["token-x"]}'
       DATA_PLANE_API_TOKENS: ""
       DATA_PLANE_LOG_POLLS: "false"
+      BILLING_ENFORCEMENT: "false"
 
     depends_on:
       db-init:

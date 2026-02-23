@@ -59,6 +59,14 @@ locals {
     local.kafka_enabled && var.kafka_sasl_password_secret_arn != "" ? [{
       name      = "KAFKA_SASL_PASSWORD"
       valueFrom = var.kafka_sasl_password_secret_arn
+    }] : [],
+    var.stripe_secret_key_secret_arn != "" ? [{
+      name      = "STRIPE_SECRET_KEY"
+      valueFrom = var.stripe_secret_key_secret_arn
+    }] : [],
+    var.stripe_webhook_secret_secret_arn != "" ? [{
+      name      = "STRIPE_WEBHOOK_SECRET"
+      valueFrom = var.stripe_webhook_secret_secret_arn
     }] : []
   ])
 
@@ -66,7 +74,9 @@ locals {
     for arn in [
       local.postgres_dsn_secret_arn_value,
       local.kafka_enabled ? var.kafka_sasl_username_secret_arn : "",
-      local.kafka_enabled ? var.kafka_sasl_password_secret_arn : ""
+      local.kafka_enabled ? var.kafka_sasl_password_secret_arn : "",
+      var.stripe_secret_key_secret_arn,
+      var.stripe_webhook_secret_secret_arn
     ] : arn if arn != ""
   ]
 
@@ -78,7 +88,11 @@ locals {
     CONTROL_PLANE_ADMIN_TOKEN = var.control_plane_admin_token
     DATA_PLANE_TENANT_ID = var.data_plane_tenant_id
     CORS_ORIGINS         = var.cors_origins
-  })
+    STRIPE_PRICE_ID      = var.stripe_price_id
+  },
+    var.stripe_secret_key_secret_arn == "" ? { STRIPE_SECRET_KEY = var.stripe_secret_key } : {},
+    var.stripe_webhook_secret_secret_arn == "" ? { STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret } : {}
+  )
 }
 
 resource "aws_ecs_cluster" "this" {

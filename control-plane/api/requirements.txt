@@ -8,3 +8,4 @@ boto3
 kubernetes
 redis[asyncio]
 PyJWT[crypto]
+stripe

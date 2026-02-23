@@ -73,6 +73,8 @@ services:
     build:
       context: .
       dockerfile: control-plane/api/Dockerfile.dev
+    env_file:
+      - .env.local
     environment:
       EVENT_BUS_PROVIDER: sqs
       SQS_ENDPOINT_URL: http://elasticmq:9324
@@ -90,6 +92,7 @@ services:
       CLERK_JWT_ALGORITHM: RS256
       CONTROL_PLANE_ADMIN_TOKEN: local-admin-token
       DATA_PLANE_LOG_POLLS: "false"
+      BILLING_ENFORCEMENT: "false"
     depends_on:
       db-init:
         condition: service_completed_successfully

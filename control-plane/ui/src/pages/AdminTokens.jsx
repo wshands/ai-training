@@ -11,6 +11,8 @@ const formatTs = (value) => {
   return d.toLocaleString();
 };
 
+const PAID_STATUSES = new Set(['active', 'trialing', 'past_due']);
+
 const AdminTokens = () => {
   const { role, loading: roleLoading } = useAppAuth();
   const isAdmin = hasMinRole(role, 'admin');
@@ -28,6 +30,11 @@ const AdminTokens = () => {
   const [retentionSource, setRetentionSource] = useState('default');
   const [savingRetention, setSavingRetention] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [billingErr, setBillingErr] = useState('');
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [syncingBilling, setSyncingBilling] = useState(false);
+  const [billingStatus, setBillingStatus] = useState(null);
+  const [billingStatusErr, setBillingStatusErr] = useState('');
 
   const loadTokens = useCallback(async () => {
     if (!isAdmin) return;
@@ -61,15 +68,28 @@ const AdminTokens = () => {
     }
   }, [isAdmin]);
 
+  const loadBillingStatus = useCallback(async () => {
+    if (!isAdmin) return;
+    setBillingStatusErr('');
+    try {
+      const res = await api.get('/billing/status');
+      setBillingStatus(res.data || null);
+    } catch (e) {
+      setBillingStatusErr(handleApiError(e));
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     loadTokens();
     loadRetention();
-  }, [loadTokens, loadRetention]);
+    loadBillingStatus();
+  }, [loadTokens, loadRetention, loadBillingStatus]);
 
   const activeTokens = useMemo(
     () => tokens.filter((token) => !token.revoked_at),
     [tokens]
   );
+  const isSubscribed = PAID_STATUSES.has(billingStatus?.status);
 
   const revokeToken = async (tokenId) => {
     setTokenErr('');
@@ -157,6 +177,64 @@ const AdminTokens = () => {
     } finally {
       setExporting(false);
     }
+  };
+
+  const openBillingPortal = async () => {
+    setBillingErr('');
+    setBillingLoading(true);
+    try {
+      const res = await api.post('/billing/portal', {
+        return_url: window.location.href,
+      });
+      const url = res.data?.url;
+      if (url) {
+        window.location.href = url;
+      } else {
+        setBillingErr('Billing portal URL was not returned.');
+      }
+    } catch (e) {
+      setBillingErr(handleApiError(e));
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const startSubscription = async () => {
+    setBillingErr('');
+    setBillingLoading(true);
+    try {
+      const res = await api.post('/billing/checkout', {
+        return_url: window.location.href,
+      });
+      const url = res.data?.url;
+      if (url) {
+        window.location.href = url;
+      } else {
+        setBillingErr('Checkout URL was not returned.');
+      }
+    } catch (e) {
+      setBillingErr(handleApiError(e));
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const syncBilling = async () => {
+    setBillingErr('');
+    setSyncingBilling(true);
+    try {
+      await api.post('/billing/sync');
+      await loadBillingStatus();
+    } catch (e) {
+      setBillingErr(handleApiError(e));
+    } finally {
+      setSyncingBilling(false);
+    }
+  };
+
+  const statusLabel = (status) => {
+    if (!status) return 'Not subscribed';
+    return status.replace('_', ' ');
   };
 
   if (roleLoading) {
@@ -357,6 +435,60 @@ const AdminTokens = () => {
         </div>
         {exportErr && (
           <div className="mt-3 text-sm text-rose-600">{exportErr}</div>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-5 text-slate-900">
+        <h2 className="text-sm font-semibold text-slate-900">Billing</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          Manage your subscription and payment method in Stripe.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <span className="uppercase tracking-wide text-slate-500">Status</span>
+          <span className="px-2 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700">
+            {statusLabel(billingStatus?.status)}
+          </span>
+          {billingStatus?.cancel_at_period_end && (
+            <span className="px-2 py-1 rounded-full bg-amber-100 border border-amber-200 text-amber-700">
+              Canceling
+            </span>
+          )}
+          {billingStatus?.current_period_end && (
+            <span className="text-slate-500">
+              Renews {formatTs(billingStatus.current_period_end)}
+            </span>
+          )}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={startSubscription}
+            disabled={billingLoading || isSubscribed}
+            className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-500 disabled:opacity-60"
+          >
+            {billingLoading ? 'Opening…' : isSubscribed ? 'Subscription active' : 'Start subscription'}
+          </button>
+          <button
+            type="button"
+            onClick={openBillingPortal}
+            disabled={billingLoading}
+            className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-60"
+          >
+            {billingLoading ? 'Opening…' : 'Manage billing'}
+          </button>
+          <button
+            type="button"
+            onClick={syncBilling}
+            disabled={syncingBilling}
+            className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:border-slate-400 disabled:opacity-60"
+          >
+            {syncingBilling ? 'Syncing…' : 'Sync billing'}
+          </button>
+        </div>
+        {(billingErr || billingStatusErr) && (
+          <div className="mt-3 text-sm text-rose-600">
+            {billingErr || billingStatusErr}
+          </div>
         )}
       </div>
     </div>

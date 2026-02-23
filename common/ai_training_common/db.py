@@ -177,6 +177,29 @@ async def init_db():
             ON admin_audit_events(tenant_id, created_at DESC);
             """)
 
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS tenant_billing (
+                tenant_id TEXT PRIMARY KEY,
+                stripe_customer_id TEXT,
+                stripe_subscription_id TEXT,
+                stripe_price_id TEXT,
+                status TEXT,
+                current_period_end TIMESTAMP,
+                cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
+                updated_at TIMESTAMP NOT NULL DEFAULT now()
+            );
+            """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tenant_billing_customer
+            ON tenant_billing(stripe_customer_id);
+            """)
+
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tenant_billing_subscription
+            ON tenant_billing(stripe_subscription_id);
+            """)
+
     return pool
 
 
@@ -234,6 +257,147 @@ async def fetch_jobs(tenant_id: str, limit: int = 100, offset: int = 0) -> List[
             offset,
         )
     return rows
+
+
+async def upsert_tenant_billing(
+    tenant_id: str,
+    *,
+    stripe_customer_id: str | None,
+    stripe_subscription_id: str | None,
+    stripe_price_id: str | None,
+    status: str | None,
+    current_period_end: Optional[float],
+    cancel_at_period_end: Optional[bool],
+) -> None:
+    """Upsert billing state for a tenant."""
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO tenant_billing (
+                tenant_id,
+                stripe_customer_id,
+                stripe_subscription_id,
+                stripe_price_id,
+                status,
+                current_period_end,
+                cancel_at_period_end,
+                updated_at
+            )
+            VALUES (
+                $1, $2, $3, $4, $5,
+                to_timestamp($6::double precision),
+                COALESCE($7, false),
+                now()
+            )
+            ON CONFLICT (tenant_id) DO UPDATE
+              SET stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, tenant_billing.stripe_customer_id),
+                  stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, tenant_billing.stripe_subscription_id),
+                  stripe_price_id = COALESCE(EXCLUDED.stripe_price_id, tenant_billing.stripe_price_id),
+                  status = COALESCE(EXCLUDED.status, tenant_billing.status),
+                  current_period_end = COALESCE(EXCLUDED.current_period_end, tenant_billing.current_period_end),
+                  cancel_at_period_end = COALESCE(EXCLUDED.cancel_at_period_end, tenant_billing.cancel_at_period_end),
+                  updated_at = now()
+            """,
+            tenant_id,
+            stripe_customer_id,
+            stripe_subscription_id,
+            stripe_price_id,
+            status,
+            current_period_end,
+            cancel_at_period_end,
+        )
+
+
+async def update_billing_by_subscription(
+    stripe_subscription_id: str,
+    *,
+    stripe_price_id: str | None,
+    status: str | None,
+    current_period_end: Optional[float],
+    cancel_at_period_end: Optional[bool],
+) -> None:
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE tenant_billing
+               SET stripe_price_id = COALESCE($2, stripe_price_id),
+                   status = COALESCE($3, status),
+                   current_period_end = COALESCE(
+                     to_timestamp($4::double precision),
+                     current_period_end
+                   ),
+                   cancel_at_period_end = COALESCE($5, cancel_at_period_end),
+                   updated_at = now()
+             WHERE stripe_subscription_id = $1
+            """,
+            stripe_subscription_id,
+            stripe_price_id,
+            status,
+            current_period_end,
+            cancel_at_period_end,
+        )
+
+
+async def update_billing_by_customer(
+    stripe_customer_id: str,
+    *,
+    stripe_price_id: str | None,
+    status: str | None,
+    current_period_end: Optional[float],
+    cancel_at_period_end: Optional[bool],
+) -> None:
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE tenant_billing
+               SET stripe_price_id = COALESCE($2, stripe_price_id),
+                   status = COALESCE($3, status),
+                   current_period_end = COALESCE(
+                     to_timestamp($4::double precision),
+                     current_period_end
+                   ),
+                   cancel_at_period_end = COALESCE($5, cancel_at_period_end),
+                   updated_at = now()
+             WHERE stripe_customer_id = $1
+            """,
+            stripe_customer_id,
+            stripe_price_id,
+            status,
+            current_period_end,
+            cancel_at_period_end,
+        )
+
+
+async def fetch_tenant_billing(tenant_id: str) -> Optional[asyncpg.Record]:
+    global pool
+    if pool is None:
+        await init_db()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """
+            SELECT
+              tenant_id,
+              stripe_customer_id,
+              stripe_subscription_id,
+              stripe_price_id,
+              status,
+              current_period_end,
+              cancel_at_period_end,
+              updated_at
+            FROM tenant_billing
+            WHERE tenant_id = $1
+            """,
+            tenant_id,
+        )
 
 
 async def fetch_jobs_by_state(
