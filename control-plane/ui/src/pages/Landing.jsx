@@ -17,7 +17,7 @@ const Landing = () => {
               </p>
               <h1 className="mt-4 text-4xl md:text-5xl font-semibold leading-tight">
                 Run training jobs in your own cloud,
-                <span className="landing-serif text-amber-700"> without the MLOps sprawl.</span>
+                <span className="landing-serif text-amber-700"> without the MLOps overhead.</span>
               </h1>
               <p className="mt-5 text-lg text-slate-700">
                 AITrainOps gives you orchestration, live logs, and audit trails for

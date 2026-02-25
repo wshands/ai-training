@@ -63,7 +63,7 @@ Install:
 
 ```bash
 helm upgrade --install ai-data-plane ./deploy/helm/data-plane \
-  --namespace training-jobs
+  --namespace training-jobs --create-namespace
 ```
 
 ## 5) Verify the deployment
