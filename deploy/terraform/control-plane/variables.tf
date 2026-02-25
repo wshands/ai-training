@@ -241,13 +241,13 @@ variable "postgres_engine_version" {
 variable "postgres_instance_class" {
   type        = string
   description = "Postgres instance class"
-  default     = "db.t4g.small"
+  default     = "db.t4g.micro"
 }
 
 variable "postgres_allocated_storage" {
   type        = number
   description = "Postgres allocated storage (GB)"
-  default     = 50
+  default     = 20
 }
 
 variable "postgres_db_name" {
@@ -325,11 +325,35 @@ variable "postgres_multi_az" {
 variable "redis_node_type" {
   type        = string
   description = "ElastiCache node type"
-  default     = "cache.t4g.small"
+  default     = "cache.t4g.micro"
 }
 
 variable "redis_engine_version" {
   type        = string
   description = "ElastiCache Redis engine version"
   default     = "7.1"
+}
+
+variable "ecs_cpu_architecture" {
+  type        = string
+  description = "ECS task CPU architecture (ARM64 or X86_64)"
+  default     = "ARM64"
+}
+
+variable "ecs_os_family" {
+  type        = string
+  description = "ECS task operating system family"
+  default     = "LINUX"
+}
+
+variable "event_processor_use_fargate_spot" {
+  type        = bool
+  description = "Run the event-processor on Fargate Spot"
+  default     = true
+}
+
+variable "event_processor_spot_fallback" {
+  type        = bool
+  description = "Allow Fargate on-demand fallback when Spot capacity is unavailable"
+  default     = true
 }

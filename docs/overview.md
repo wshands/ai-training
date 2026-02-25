@@ -18,6 +18,7 @@ AITrainOps is a control‑plane + data‑plane platform for running GPU training
 - **Event bus** for job lifecycle events (SQS FIFO by default; Kafka/MSK optional).
 - **Redis** fan‑out for WebSocket live updates.
 - **React UI** for job lists, detail, logs, metrics, and admin operations.
+- **Cost controls**: event‑processor can run on Fargate Spot with on‑demand fallback.
 
 ### Data‑plane (customer AWS / Kubernetes)
 - **Job‑launcher** polls for work, claims jobs, and creates Kubernetes Jobs.

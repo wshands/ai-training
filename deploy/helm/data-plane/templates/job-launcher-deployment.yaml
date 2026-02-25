@@ -40,3 +40,7 @@ spec:
             - name: HTTPX_LOG_LEVEL
               value: "{{ .Values.jobLauncher.httpxLogLevel }}"
             {{- end }}
+            {{- if .Values.jobLauncher.logLevel }}
+            - name: LOG_LEVEL
+              value: "{{ .Values.jobLauncher.logLevel }}"
+            {{- end }}

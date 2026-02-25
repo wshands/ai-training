@@ -233,6 +233,10 @@ resource "aws_ecs_task_definition" "control_plane" {
   memory                   = "1024"
   execution_role_arn       = aws_iam_role.task_execution.arn
   task_role_arn            = aws_iam_role.task.arn
+  runtime_platform {
+    cpu_architecture        = var.ecs_cpu_architecture
+    operating_system_family = var.ecs_os_family
+  }
 
   container_definitions = jsonencode([
     {
@@ -272,6 +276,10 @@ resource "aws_ecs_task_definition" "event_processor" {
   memory                   = "1024"
   execution_role_arn       = aws_iam_role.task_execution.arn
   task_role_arn            = aws_iam_role.task.arn
+  runtime_platform {
+    cpu_architecture        = var.ecs_cpu_architecture
+    operating_system_family = var.ecs_os_family
+  }
 
   container_definitions = jsonencode([
     {
@@ -324,7 +332,23 @@ resource "aws_ecs_service" "event_processor" {
   cluster         = aws_ecs_cluster.this.id
   task_definition = aws_ecs_task_definition.event_processor.arn
   desired_count   = var.event_processor_desired_count
-  launch_type     = "FARGATE"
+  launch_type     = var.event_processor_use_fargate_spot ? null : "FARGATE"
+
+  dynamic "capacity_provider_strategy" {
+    for_each = var.event_processor_use_fargate_spot ? [1] : []
+    content {
+      capacity_provider = "FARGATE_SPOT"
+      weight            = 1
+    }
+  }
+
+  dynamic "capacity_provider_strategy" {
+    for_each = (var.event_processor_use_fargate_spot && var.event_processor_spot_fallback) ? [1] : []
+    content {
+      capacity_provider = "FARGATE"
+      weight            = 1
+    }
+  }
 
   network_configuration {
     subnets         = module.vpc.private_subnets

@@ -57,8 +57,6 @@ from jwt import PyJWKClientError
 
 #from fastapi import WebSocket
 from common.ai_training_common.config import (
-    TRAINING_NAMESPACE,
-    TRAINING_IMAGE,
     REDIS_URL,
     EVENT_RETENTION_DAYS,
     CLERK_JWKS_URL,

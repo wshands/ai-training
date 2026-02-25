@@ -10,3 +10,4 @@ jobLauncher:
   dataPlaneApiToken: "<local-dev-token>"
   dataPlaneTenantId: "<tenant-id>"
   httpxLogLevel: "WARNING"
+  logLevel: "INFO"

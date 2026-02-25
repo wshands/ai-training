@@ -44,6 +44,7 @@ resource "aws_db_instance" "postgres" {
   engine_version          = var.postgres_engine_version
   instance_class          = var.postgres_instance_class
   allocated_storage       = var.postgres_allocated_storage
+  storage_type            = "gp3"
   db_name                 = local.postgres_restore_from_snapshot ? null : var.postgres_db_name
   username                = local.postgres_restore_from_snapshot ? null : var.postgres_username
   password                = local.postgres_restore_from_snapshot ? null : random_password.postgres.result

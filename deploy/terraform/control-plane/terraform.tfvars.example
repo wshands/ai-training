@@ -3,6 +3,9 @@ control_plane_image       = "123456789012.dkr.ecr.us-west-2.amazonaws.com/contro
 event_processor_image     = "123456789012.dkr.ecr.us-west-2.amazonaws.com/event-processor:latest"
 control_plane_desired_count = 1
 event_processor_desired_count = 1
+event_processor_use_fargate_spot = true
+event_processor_spot_fallback = true
+ecs_cpu_architecture = "ARM64"
 
 kafka_bootstrap           = ""
 kafka_topic               = "job-events"

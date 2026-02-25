@@ -13,7 +13,33 @@ helm upgrade --install ai-data-plane ./deploy/helm/data-plane \
 ```bash
 helm upgrade --install ai-data-plane ./deploy/helm/data-plane \
   --namespace training-jobs --create-namespace \
-  -f values-eks.yaml
+  -f values-prod.yaml
+```
+
+## Multiple data-plane deployments (local + prod)
+
+If you want both a local data-plane and a prod data-plane running side by side,
+install the chart twice with different release names and tokens. Using separate
+namespaces avoids RBAC and ServiceAccount name collisions.
+
+```bash
+helm upgrade --install ai-training-local-agent ./deploy/helm/data-plane \
+  --namespace training-jobs-local --create-namespace \
+  -f values-local.yaml \
+  --set-string jobLauncher.trainingNamespace=training-jobs-local \
+  --set-string jobLauncher.dataPlaneApiToken="local-dev-token" \
+  --set-string jobLauncher.dataPlaneTenantId="org_local" \
+  --set-string jobLauncher.controlPlaneUrl="http://host.docker.internal:8000"
+```
+
+```bash
+helm upgrade --install ai-training-prod-agent ./deploy/helm/data-plane \
+  --namespace training-jobs-prod --create-namespace \
+  -f values-prod.yaml \
+  --set-string jobLauncher.trainingNamespace=training-jobs-prod \
+  --set-string jobLauncher.dataPlaneApiToken="prod-token" \
+  --set-string jobLauncher.dataPlaneTenantId="org_prod" \
+  --set-string jobLauncher.controlPlaneUrl="https://api.aitrainops.com"
 ```
 
 ## Publish a public Helm repo (GitHub Pages)

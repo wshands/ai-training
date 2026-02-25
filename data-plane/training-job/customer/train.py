@@ -44,6 +44,7 @@ async def run_training(
     should_terminate: Callable[[], bool],
 ) -> int:
     """Run training and report logs/metrics via the reporter."""
+    job_id = str(cfg.get("job_id", "unknown"))
     await reporter.log("INFO", "Building synthetic dataset")
     val_split = float(cfg.get("val_split", 0.2))
     loader, val_loader = build_data(
