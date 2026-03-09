@@ -23,7 +23,7 @@ export const handleApiError = (err) => {
   }
   if (err.request) {
     console.error('Network error:', err.message);
-    return 'Network error contacting API';
+    return `Network error contacting API (${API_BASE_URL})`;
   }
   console.error('Unexpected error:', err);
   return 'Unexpected error';

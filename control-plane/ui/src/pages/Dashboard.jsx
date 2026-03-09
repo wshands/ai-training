@@ -18,7 +18,7 @@ const Dashboard = () => {
   const [err, setErr] = useState('');
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
-  const { role, loading: roleLoading } = useAppAuth();
+  const { role, loading: roleLoading, error: roleError } = useAppAuth();
   const canSubmit = hasMinRole(role, 'operator');
 
   const fetchJobs = useCallback(
@@ -97,7 +97,12 @@ const Dashboard = () => {
           </button>
         )}
       </div>
-      {!roleLoading && !canSubmit && (
+      {roleError && (
+        <div className="text-xs text-rose-300 mb-3">
+          Could not load permissions from API: {roleError}
+        </div>
+      )}
+      {!roleLoading && !roleError && role && !canSubmit && (
         <div className="text-xs text-amber-300 mb-3">
           Read-only role — you can view jobs but cannot submit new ones.
         </div>
@@ -113,7 +118,7 @@ const Dashboard = () => {
         <div className="text-sm text-rose-300 bg-rose-950/40 border border-rose-700/60 rounded p-3 mb-3">
           Could not load jobs from API: {err}
           <div className="mt-1 text-xs text-rose-200/80">
-            (You may not have implemented <code>GET /jobs</code> yet.)
+            Check API DNS/TLS/CORS and that the API is reachable from your browser.
           </div>
         </div>
       )}

@@ -65,6 +65,10 @@ resource "aws_acm_certificate" "ui" {
   domain_name       = local.ui_domain_names[0]
   subject_alternative_names = length(local.ui_domain_names) > 1 ? slice(local.ui_domain_names, 1, length(local.ui_domain_names)) : []
   validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_route53_record" "ui_cert_validation" {
@@ -90,7 +94,7 @@ resource "aws_cloudfront_distribution" "ui" {
   default_root_object = "index.html"
   price_class         = var.ui_cloudfront_price_class
   aliases             = local.ui_has_domain ? local.ui_domain_names : []
-  wait_for_deployment = false
+  wait_for_deployment = true
 
   origin {
     domain_name              = aws_s3_bucket.ui.bucket_regional_domain_name
