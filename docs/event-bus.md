@@ -60,3 +60,14 @@ KAFKA_TOPIC=job-events
 
 The Terraform toggle `event_bus_provider` controls which resources are
 provisioned in AWS.
+
+## Queue access control (SQS mode)
+
+In AWS deployments, SQS access is currently controlled through IAM policies
+attached to the ECS task role (send/receive/delete/visibility/attributes on the
+event queue ARN).
+
+By default, this stack does not create an explicit SQS resource policy
+(`aws_sqs_queue_policy`). If you need cross-account producers/consumers or
+stricter principal-based queue controls, add a queue resource policy for that
+deployment.

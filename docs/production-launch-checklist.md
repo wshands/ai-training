@@ -49,3 +49,4 @@ AWS and the data-plane in customer Kubernetes clusters.
 - [ ] Add alarms for ECS task restarts
 - [ ] Add rate limiting on internal endpoints
 - [ ] Run load test on `/internal/jobs` polling
+- [ ] Add explicit SQS queue resource policy for cross-account producers/consumers (if needed)

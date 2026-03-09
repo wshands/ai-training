@@ -17,6 +17,7 @@ The control-plane is the system of record for jobs and user access. It exposes:
 It is responsible for:
 
 - Validating user identity (Clerk JWT)
+- Enforcing RBAC for user operations (admin/operator/viewer)
 - Creating job records and emitting submission/cancel events
 - Enforcing tenant isolation
 - Publishing events to the event bus (Kafka or SQS FIFO)
@@ -50,7 +51,9 @@ API.
 
 Kafka or SQS FIFO are used as the internal event bus for job lifecycle events.
 Kafka runs on MSK in production when enabled; SQS FIFO is an alternative for
-simpler ops and lower cost.
+simpler ops and lower cost. In SQS mode, queue access is granted via IAM
+policies on the control-plane/event-processor task role. An explicit SQS queue
+resource policy is optional and primarily needed for cross-account patterns.
 
 ### Postgres
 

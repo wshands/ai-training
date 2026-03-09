@@ -62,6 +62,7 @@ Notes:
 - **User auth** via Clerk JWTs (org‑scoped tenancy).
 - **RBAC** via Clerk org roles (admin/operator/viewer) enforced at the API and UI.
 - **Data‑plane auth** via hashed, DB‑stored API tokens (admin‑minted).
+- **Queue access control** via IAM policies attached to ECS task roles (SQS mode).
 - **Tenant isolation** enforced in control‑plane and data‑plane endpoints.
 - **No data plane access to event bus**; only HTTPS to the control‑plane API.
 
@@ -91,7 +92,8 @@ This architecture gives customers the benefits of a SaaS control‑plane without
 ## What’s next (roadmap)
 - Token rotation + lifecycle policies
 - Cost/GPU usage insights
-- Advanced retry/queue policies
+- Advanced retry/backoff tuning
+- Explicit cross-account SQS queue resource policies (when required)
 
 ---
 
