@@ -8,6 +8,31 @@
       name="description"
       content="AiTrainOps helps teams run private Kubernetes training workloads with centralized orchestration, live observability, and audit-ready operations."
     />
+    <link rel="canonical" href="https://www.aitrainops.com/" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta name="theme-color" content="#0a8f63" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AiTrainOps" />
+    <meta property="og:title" content="AiTrainOps | Private ML Training Operations" />
+    <meta
+      property="og:description"
+      content="Run Kubernetes training in your own cloud with centralized orchestration, live observability, and audit-ready operations."
+    />
+    <meta property="og:url" content="https://www.aitrainops.com/" />
+    <meta property="og:image" content="https://www.aitrainops.com/og-image.svg" />
+    <meta property="og:image:alt" content="AiTrainOps private ML training operations" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AiTrainOps | Private ML Training Operations" />
+    <meta
+      name="twitter:description"
+      content="Operate private Kubernetes training from one place, with observability and governance."
+    />
+    <meta name="twitter:image" content="https://www.aitrainops.com/og-image.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -15,6 +40,47 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://www.aitrainops.com/#organization",
+            "name": "AiTrainOps",
+            "url": "https://www.aitrainops.com/",
+            "email": "admin@aitrainops.com",
+            "sameAs": [
+              "https://www.linkedin.com/in/wshands/",
+              "https://github.com/wshands"
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://www.aitrainops.com/#website",
+            "url": "https://www.aitrainops.com/",
+            "name": "AiTrainOps",
+            "publisher": {
+              "@id": "https://www.aitrainops.com/#organization"
+            }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "AiTrainOps",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "url": "https://www.aitrainops.com/",
+            "description": "Control-plane and customer-VPC data-plane orchestration for secure AI training workloads on Kubernetes.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "description": "Design partner pilot inquiry"
+            }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div class="backdrop" aria-hidden="true">
@@ -48,9 +114,9 @@
         <div class="cta-row">
           <a
             class="btn btn-solid"
-            href="mailto:admin@aitrainops.com?subject=AiTrainOps%20Early%20Access&body=Hi%20AiTrainOps%20team%2C%0A%0AWe%20are%20interested%20in%20a%20design-partner%20pilot.%0A%0ACompany%3A%0ATeam%20size%3A%0AUse%20case%3A%0A"
+            href="#pilot-form"
           >
-            Request Early Access
+            Request Pilot
           </a>
           <a
             class="btn btn-outline"
@@ -107,16 +173,58 @@
           </ul>
         </div>
         <aside class="action-panel">
-          <p class="panel-title">Next step</p>
+          <p class="panel-title" id="pilot-form">Next step</p>
           <p>
-            Send a short note with your current workflow and cluster environment.
+            Share your workflow and cluster environment. Submissions go directly
+            to your inbox.
           </p>
-          <a
-            class="btn btn-solid panel-btn"
-            href="mailto:admin@aitrainops.com?subject=AiTrainOps%20Pilot%20Fit%20Request"
+          <div id="form-success" class="form-success" hidden>
+            Thanks, your request was submitted. We will follow up shortly.
+          </div>
+          <form
+            id="pilot-request-form"
+            class="pilot-form"
+            action="https://formspree.io/f/maqpqgdo"
+            method="POST"
+            accept-charset="UTF-8"
           >
-            Start the Conversation
-          </a>
+            <input type="hidden" name="_subject" value="AiTrainOps Pilot Request" />
+            <input type="hidden" name="_next" id="form-next" value="" />
+
+            <label>
+              Name
+              <input type="text" name="name" autocomplete="name" required />
+            </label>
+            <label>
+              Work email
+              <input type="email" name="email" autocomplete="email" required />
+            </label>
+            <label>
+              Company
+              <input type="text" name="company" autocomplete="organization" required />
+            </label>
+            <label>
+              Use case
+              <textarea name="use_case" rows="3" required></textarea>
+            </label>
+
+            <button class="btn btn-solid panel-btn" type="submit">
+              Send Pilot Request
+            </button>
+          </form>
+          <p id="form-config-warning" class="form-warning" hidden>
+            Form is not configured yet. Replace
+            <code>https://formspree.io/f/your-form-id</code> in
+            <code>index.html</code> with your real Formspree endpoint.
+          </p>
+          <p class="form-note">
+            Prefer email? Use
+            <a
+              href="mailto:admin@aitrainops.com?subject=AiTrainOps%20Pilot%20Fit%20Request"
+            >
+              admin@aitrainops.com
+            </a>.
+          </p>
           <a
             class="panel-link"
             href="https://www.linkedin.com/in/wshands/"
@@ -140,6 +248,33 @@
 
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
+      const form = document.getElementById("pilot-request-form");
+      const success = document.getElementById("form-success");
+      const warning = document.getElementById("form-config-warning");
+      const next = document.getElementById("form-next");
+
+      const url = new URL(window.location.href);
+      if (next) {
+        const doneUrl = new URL(window.location.href);
+        doneUrl.searchParams.set("submitted", "1");
+        doneUrl.hash = "pilot-form";
+        next.value = doneUrl.toString();
+      }
+
+      if (url.searchParams.get("submitted") === "1" && form && success) {
+        form.hidden = true;
+        success.hidden = false;
+      }
+
+      if (form) {
+        form.addEventListener("submit", (event) => {
+          const action = form.getAttribute("action") || "";
+          if (action.includes("/your-form-id")) {
+            event.preventDefault();
+            if (warning) warning.hidden = false;
+          }
+        });
+      }
     </script>
   </body>
 </html>

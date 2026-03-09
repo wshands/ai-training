@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">AiTrainOps</title>
+  <desc id="desc">Private ML Training Operations on Kubernetes</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a8f63" />
+      <stop offset="100%" stop-color="#066746" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <circle cx="1040" cy="120" r="180" fill="#f1bb4c" opacity="0.25" />
+  <circle cx="180" cy="520" r="220" fill="#72b4df" opacity="0.22" />
+  <text x="90" y="230" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="700" fill="#f6f1e4">AiTrainOps</text>
+  <text x="92" y="300" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="400" fill="#e9f8f1">Private ML Training Operations</text>
+  <text x="92" y="358" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="400" fill="#d7f2e7">Run training in your cloud. Operate from one place.</text>
+</svg>

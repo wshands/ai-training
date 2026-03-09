@@ -266,6 +266,79 @@ h1 span {
   box-shadow: none;
 }
 
+.pilot-form {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.58rem;
+}
+
+.pilot-form label {
+  display: grid;
+  gap: 0.32rem;
+  font-size: 0.8rem;
+  color: #dff3ea;
+}
+
+.pilot-form input,
+.pilot-form textarea {
+  width: 100%;
+  border-radius: 0.62rem;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f2faf6;
+  padding: 0.56rem 0.62rem;
+  font: inherit;
+  outline: none;
+}
+
+.pilot-form input::placeholder,
+.pilot-form textarea::placeholder {
+  color: rgba(239, 248, 244, 0.72);
+}
+
+.pilot-form input:focus,
+.pilot-form textarea:focus {
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.17);
+}
+
+.form-success {
+  margin-top: 0.72rem;
+  font-size: 0.84rem;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 0.72rem;
+  padding: 0.62rem;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f2faf6;
+}
+
+.form-note {
+  margin: 0.65rem 0 0;
+  font-size: 0.8rem;
+  color: #d7f2e7;
+}
+
+.form-note a {
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.form-warning {
+  margin: 0.72rem 0 0;
+  padding: 0.5rem 0.55rem;
+  border-radius: 0.65rem;
+  background: rgba(158, 0, 12, 0.28);
+  border: 1px solid rgba(255, 198, 204, 0.5);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.form-warning code {
+  background: rgba(0, 0, 0, 0.24);
+  border-radius: 0.35rem;
+  padding: 0 0.25rem;
+}
+
 .panel-link {
   margin-top: 0.72rem;
   display: inline-block;
@@ -325,4 +398,3 @@ h1 span {
     grid-template-columns: 1fr;
   }
 }
-
