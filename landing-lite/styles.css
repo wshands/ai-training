@@ -348,6 +348,81 @@ h1 span {
   text-underline-offset: 0.2rem;
 }
 
+.ops {
+  margin: 0.4rem 0 1.8rem;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.1fr 0.9fr;
+  align-items: start;
+}
+
+.ops h3,
+.market h3 {
+  margin: 0.28rem 0 0;
+  font-size: 1.35rem;
+  font-family: "Fraunces", Georgia, serif;
+}
+
+.ops-lede {
+  margin-top: 0.62rem;
+}
+
+.ops-list {
+  margin: 0.72rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--ink-soft);
+  line-height: 1.48;
+  font-size: 0.93rem;
+}
+
+.install-card {
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow);
+}
+
+.install-card pre {
+  margin: 0.72rem 0 0;
+  border-radius: 0.8rem;
+  background: #12222b;
+  color: #d7f2e7;
+  padding: 0.8rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.install-card p {
+  margin: 0.68rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.market {
+  margin: 1rem 0 2rem;
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: var(--shadow);
+}
+
+.market p {
+  margin: 0.6rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.94rem;
+}
+
+.market-tags {
+  margin-top: 0.85rem;
+}
+
 .footer {
   position: relative;
   z-index: 2;
@@ -378,6 +453,14 @@ h1 span {
   animation-delay: 180ms;
 }
 
+.ops.reveal {
+  animation-delay: 220ms;
+}
+
+.market.reveal {
+  animation-delay: 250ms;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -395,6 +478,14 @@ h1 span {
   }
 
   .proof {
+    grid-template-columns: 1fr;
+  }
+
+  .ops {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-4 {
     grid-template-columns: 1fr;
   }
 }

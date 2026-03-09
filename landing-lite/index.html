@@ -235,6 +235,78 @@
           </a>
         </aside>
       </section>
+
+      <section class="ops reveal">
+        <div>
+          <p class="kicker">HOW IT WORKS</p>
+          <h3>A control plane that respects your boundary.</h3>
+          <p class="lede ops-lede">
+            Install the AiTrainOps agent once. Training stays in your cluster,
+            while the control plane tracks state, logs, metrics, and run history.
+          </p>
+          <ul class="ops-list">
+            <li>Submit training jobs via API or UI</li>
+            <li>Stream status and logs in near real time</li>
+            <li>Apply role-based access for operators, viewers, and admins</li>
+            <li>Retry failed jobs with backoff for reliability</li>
+            <li>Export immutable run summaries for audits (JSON/CSV)</li>
+            <li>Manage data-plane tokens and user access from admin screens</li>
+          </ul>
+        </div>
+        <aside class="install-card">
+          <p class="panel-title">Install in minutes</p>
+          <pre><code>helm repo add aitrainops https://wshands.github.io/aitrainops-charts
+helm install aitrainops-agent \
+  --set jobLauncher.dataPlaneTenantId=org_123 \
+  --set jobLauncher.dataPlaneApiToken=token_abc</code></pre>
+          <p>Works with EKS, GKE, AKS, and on-prem Kubernetes.</p>
+        </aside>
+      </section>
+
+      <section class="grid grid-4 reveal">
+        <article class="card">
+          <h2>Job orchestration</h2>
+          <p>
+            Reliable lifecycle transitions, cancellation, retries, and complete
+            run tracking.
+          </p>
+        </article>
+        <article class="card">
+          <h2>Live observability</h2>
+          <p>
+            Centralized event stream, live logs, and status updates without
+            stitching together ad-hoc tooling.
+          </p>
+        </article>
+        <article class="card">
+          <h2>Admin controls</h2>
+          <p>
+            Admin-only user management, token issuance/revocation, and retention
+            controls in one place.
+          </p>
+        </article>
+        <article class="card">
+          <h2>Compliance-ready operations</h2>
+          <p>
+            Audit trails and exportable artifacts help platform teams satisfy
+            review and governance needs.
+          </p>
+        </article>
+      </section>
+
+      <section class="market reveal">
+        <h3>Built for private ML teams</h3>
+        <p>
+          Designed for teams in biotech, pharma, healthcare, finance, and
+          enterprise SaaS that need strong security posture from day one.
+        </p>
+        <div class="tag-row market-tags">
+          <span>No data egress</span>
+          <span>Audit-ready logs</span>
+          <span>GPU-aware jobs</span>
+          <span>Multi-tenant control plane</span>
+        </div>
+      </section>
     </main>
 
     <footer class="shell footer">

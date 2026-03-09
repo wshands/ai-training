@@ -7,11 +7,3 @@
 body {
   @apply bg-slate-950 text-slate-100;
 }
-
-.landing {
-  font-family: "Space Grotesk", "Segoe UI", sans-serif;
-}
-
-.landing-serif {
-  font-family: "Fraunces", "Times New Roman", serif;
-}

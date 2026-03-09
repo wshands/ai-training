@@ -1,8 +1,9 @@
 import React from 'react';
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { useAppAuth } from '../context/AppAuthContext';
 import { hasMinRole } from '../utils/roles';
+import { MARKETING_SITE_URL } from '../config';
 
 const NavItem = ({ to, children }) => (
   <NavLink
@@ -20,7 +21,6 @@ const NavItem = ({ to, children }) => (
 );
 
 const Navbar = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
@@ -33,16 +33,21 @@ const Navbar = () => {
   const showAuthLinks = !isSignedIn;
 
   const onLogout = async () => {
-    await signOut({ redirectUrl: '/' });
-    navigate('/');
+    await signOut({ redirectUrl: MARKETING_SITE_URL });
   };
 
   return (
     <header className="bg-slate-900 border-b border-slate-800">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link to="/" className="font-semibold text-sky-400">
-          AITrainOps
-        </Link>
+        {isSignedIn ? (
+          <Link to="/app" className="font-semibold text-sky-400">
+            AITrainOps
+          </Link>
+        ) : (
+          <a href={MARKETING_SITE_URL} className="font-semibold text-sky-400">
+            AITrainOps
+          </a>
+        )}
         <nav className="flex gap-2 items-center">
           {showAppLinks && (
             <>

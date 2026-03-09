@@ -2,6 +2,8 @@ const DEFAULT_PROD_API_BASE_URL = 'https://api.aitrainops.com';
 const isBrowser = typeof window !== 'undefined';
 const host = isBrowser ? window.location.hostname : '';
 const isProdAppHost = host === 'app.aitrainops.com';
+export const MARKETING_SITE_URL =
+  process.env.REACT_APP_MARKETING_SITE_URL || 'https://www.aitrainops.com';
 
 export const API_BASE_URL =
   process.env.REACT_APP_API_BASE_URL ||

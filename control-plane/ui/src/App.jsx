@@ -14,8 +14,8 @@ import Register from './pages/Register';
 import OrgSelect from './pages/OrgSelect';
 import { setTokenGetter } from './auth';
 import AuthDebug from './components/AuthDebug';
-import Landing from './pages/Landing';
 import { AppAuthProvider } from './context/AppAuthContext';
+import { MARKETING_SITE_URL } from './config';
 
 const AuthTokenBridge = () => {
   const { getToken } = useAuth();
@@ -30,6 +30,19 @@ const SignedOutOnly = ({ children }) => {
   if (!isLoaded) return null;
   if (isSignedIn) return <Navigate to="/app" replace />;
   return children;
+};
+
+const RootRoute = () => {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  useEffect(() => {
+    if (!isLoaded || isSignedIn) return;
+    window.location.replace(MARKETING_SITE_URL);
+  }, [isLoaded, isSignedIn]);
+
+  if (!isLoaded) return null;
+  if (isSignedIn) return <Navigate to="/app" replace />;
+  return null;
 };
 
 const AppShell = () => (
@@ -100,6 +113,7 @@ const AppShell = () => (
             </RequireAuth>
           }
         />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <AuthDebug />
     </div>
@@ -110,7 +124,7 @@ const AppRoutes = () => (
   <div className="min-h-screen flex flex-col">
     <Navbar />
     <Routes>
-      <Route path="/" element={<Landing />} />
+      <Route path="/" element={<RootRoute />} />
       <Route path="/*" element={<AppShell />} />
     </Routes>
   </div>
