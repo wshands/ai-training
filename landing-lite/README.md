@@ -13,7 +13,7 @@ Files:
 
 In `index.html`, replace any placeholder contact links if needed:
 - `admin@aitrainops.com`
-- `walt@aitrainops.com`
+- `support@aitrainops.com`
 - `https://www.linkedin.com/in/wshands/`
 - `https://github.com/wshands`
 

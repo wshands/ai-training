@@ -40,6 +40,18 @@ To run the full stack locally with Docker Compose (Kafka):
 docker compose -f docker-compose-kafka.yml up --build --force-recreate
 ```
 
+One-command local run script (macOS):
+```bash
+./scripts/run-ai-training-local.sh up --bus sqs
+```
+
+Useful script commands:
+```bash
+./scripts/run-ai-training-local.sh status --bus sqs
+./scripts/run-ai-training-local.sh logs --bus sqs control-plane
+./scripts/run-ai-training-local.sh down --bus sqs --volumes
+```
+
 To bring down the local services:
 ```bash
 docker compose -f docker-compose-kafka.yml down -v

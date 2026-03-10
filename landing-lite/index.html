@@ -115,17 +115,19 @@
           <a
             class="btn btn-solid"
             href="#pilot-form"
+            data-open-pilot-form
           >
             Request Pilot
           </a>
           <a
             class="btn btn-outline"
-            href="mailto:walt@aitrainops.com?subject=Book%20AiTrainOps%20Intro%20Call"
+            href="mailto:support@aitrainops.com?subject=Book%20AiTrainOps%20Intro%20Call"
           >
             Book Intro by Email
           </a>
           <a
             class="btn btn-outline"
+            id="sign-in-link"
             href="https://app.aitrainops.com/login"
           >
             Sign in
@@ -178,45 +180,55 @@
             Share your workflow and cluster environment. Submissions go directly
             to your inbox.
           </p>
-          <div id="form-success" class="form-success" hidden>
-            Thanks, your request was submitted. We will follow up shortly.
-          </div>
-          <form
-            id="pilot-request-form"
-            class="pilot-form"
-            action="https://formspree.io/f/maqpqgdo"
-            method="POST"
-            accept-charset="UTF-8"
+          <button
+            id="pilot-form-opener"
+            class="btn btn-solid panel-btn"
+            type="button"
+            data-open-pilot-form
           >
-            <input type="hidden" name="_subject" value="AiTrainOps Pilot Request" />
-            <input type="hidden" name="_next" id="form-next" value="" />
+            Open Pilot Request Form
+          </button>
+          <div id="pilot-form-shell" hidden>
+            <div id="form-success" class="form-success" hidden>
+              Thanks, your request was submitted. We will follow up shortly.
+            </div>
+            <form
+              id="pilot-request-form"
+              class="pilot-form"
+              action="https://formspree.io/f/maqpqgdo"
+              method="POST"
+              accept-charset="UTF-8"
+            >
+              <input type="hidden" name="_subject" value="AiTrainOps Pilot Request" />
+              <input type="hidden" name="_next" id="form-next" value="" />
 
-            <label>
-              Name
-              <input type="text" name="name" autocomplete="name" required />
-            </label>
-            <label>
-              Work email
-              <input type="email" name="email" autocomplete="email" required />
-            </label>
-            <label>
-              Company
-              <input type="text" name="company" autocomplete="organization" required />
-            </label>
-            <label>
-              Use case
-              <textarea name="use_case" rows="3" required></textarea>
-            </label>
+              <label>
+                Name
+                <input type="text" name="name" autocomplete="name" required />
+              </label>
+              <label>
+                Work email
+                <input type="email" name="email" autocomplete="email" required />
+              </label>
+              <label>
+                Company
+                <input type="text" name="company" autocomplete="organization" required />
+              </label>
+              <label>
+                Use case
+                <textarea name="use_case" rows="3" required></textarea>
+              </label>
 
-            <button class="btn btn-solid panel-btn" type="submit">
-              Send Pilot Request
-            </button>
-          </form>
-          <p id="form-config-warning" class="form-warning" hidden>
-            Form is not configured yet. Replace
-            <code>https://formspree.io/f/your-form-id</code> in
-            <code>index.html</code> with your real Formspree endpoint.
-          </p>
+              <button class="btn btn-solid panel-btn" type="submit">
+                Send Pilot Request
+              </button>
+            </form>
+            <p id="form-config-warning" class="form-warning" hidden>
+              Form is not configured yet. Replace
+              <code>https://formspree.io/f/your-form-id</code> in
+              <code>index.html</code> with your real Formspree endpoint.
+            </p>
+          </div>
           <p class="form-note">
             Prefer email? Use
             <a
@@ -320,12 +332,26 @@ helm install aitrainops-agent \
 
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
+      const formShell = document.getElementById("pilot-form-shell");
+      const formOpener = document.getElementById("pilot-form-opener");
+      const openButtons = document.querySelectorAll("[data-open-pilot-form]");
+      const signInLink = document.getElementById("sign-in-link");
       const form = document.getElementById("pilot-request-form");
       const success = document.getElementById("form-success");
       const warning = document.getElementById("form-config-warning");
       const next = document.getElementById("form-next");
 
       const url = new URL(window.location.href);
+      const isLocalHost = ["localhost", "127.0.0.1"].includes(url.hostname);
+      if (isLocalHost && signInLink) {
+        signInLink.href = "http://localhost:3000/login";
+      }
+      const submitted = url.searchParams.get("submitted") === "1";
+      const openForm = () => {
+        if (formShell) formShell.hidden = false;
+        if (formOpener) formOpener.hidden = true;
+      };
+
       if (next) {
         const doneUrl = new URL(window.location.href);
         doneUrl.searchParams.set("submitted", "1");
@@ -333,16 +359,28 @@ helm install aitrainops-agent \
         next.value = doneUrl.toString();
       }
 
-      if (url.searchParams.get("submitted") === "1" && form && success) {
+      if (submitted && form && success) {
+        openForm();
         form.hidden = true;
         success.hidden = false;
       }
+
+      openButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          openForm();
+          if (!submitted && form && !form.hidden) {
+            const firstInput = form.querySelector("input, textarea");
+            if (firstInput) firstInput.focus();
+          }
+        });
+      });
 
       if (form) {
         form.addEventListener("submit", (event) => {
           const action = form.getAttribute("action") || "";
           if (action.includes("/your-form-id")) {
             event.preventDefault();
+            openForm();
             if (warning) warning.hidden = false;
           }
         });
