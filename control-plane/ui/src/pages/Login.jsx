@@ -1,5 +1,6 @@
 import React from 'react';
 import { SignIn } from '@clerk/clerk-react';
+import { MARKETING_SITE_URL } from '../config';
 
 const clerkAppearance = {
   variables: {
@@ -35,9 +36,8 @@ const Login = () => {
       <SignIn
         routing="path"
         path="/login"
-        signUpUrl="/register"
+        signUpUrl={MARKETING_SITE_URL}
         afterSignInUrl="/"
-        afterSignUpUrl="/"
         appearance={clerkAppearance}
       />
     </div>

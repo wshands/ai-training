@@ -27,8 +27,7 @@ const Navbar = () => {
   const { role, loading: roleLoading } = useAppAuth();
   const canSubmit = hasMinRole(role, 'operator');
   const isAdmin = hasMinRole(role, 'admin');
-  const isAuthRoute =
-    location.pathname.startsWith('/login') || location.pathname.startsWith('/register');
+  const isAuthRoute = location.pathname.startsWith('/login');
   const showAppLinks = isSignedIn && !isAuthRoute;
   const showAuthLinks = !isSignedIn;
 
@@ -69,13 +68,21 @@ const Navbar = () => {
           {showAuthLinks && (
             <>
               {isAuthRoute ? (
-                <NavItem to={location.pathname.startsWith('/login') ? '/register' : '/login'}>
-                  {location.pathname.startsWith('/login') ? 'Request access' : 'Sign in'}
-                </NavItem>
+                <a
+                  href={MARKETING_SITE_URL}
+                  className="px-3 py-1 rounded-md text-sm font-medium text-slate-200 hover:bg-slate-700 hover:text-white"
+                >
+                  Request access
+                </a>
               ) : (
                 <>
                   <NavItem to="/login">Sign in</NavItem>
-                  <NavItem to="/register">Request access</NavItem>
+                  <a
+                    href={MARKETING_SITE_URL}
+                    className="px-3 py-1 rounded-md text-sm font-medium text-slate-200 hover:bg-slate-700 hover:text-white"
+                  >
+                    Request access
+                  </a>
                 </>
               )}
             </>

@@ -10,7 +10,6 @@ import JobDetail from './pages/JobDetail';
 import AdminTokens from './pages/AdminTokens';
 import AdminUsers from './pages/AdminUsers';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import OrgSelect from './pages/OrgSelect';
 import { setTokenGetter } from './auth';
 import AuthDebug from './components/AuthDebug';
@@ -45,6 +44,13 @@ const RootRoute = () => {
   return null;
 };
 
+const ExternalRedirect = ({ to }) => {
+  useEffect(() => {
+    window.location.replace(to);
+  }, [to]);
+  return null;
+};
+
 const AppShell = () => (
   <main className="flex-1">
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -61,7 +67,7 @@ const AppShell = () => (
           path="/register/*"
           element={
             <SignedOutOnly>
-              <Register />
+              <ExternalRedirect to={MARKETING_SITE_URL} />
             </SignedOutOnly>
           }
         />
