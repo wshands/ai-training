@@ -307,9 +307,42 @@ helm install aitrainops-agent \
 
       const url = new URL(window.location.href);
       const isLocalHost = ["localhost", "127.0.0.1"].includes(url.hostname);
-      if (isLocalHost && signInLink) {
-        signInLink.href = "http://localhost:3000/login";
+      const appLoginUrl = isLocalHost
+        ? "http://localhost:3000/login"
+        : "https://app.aitrainops.com/login";
+
+      const setSignInUnavailable = () => {
+        if (!signInLink) return;
+        signInLink.textContent = "App Not Live Yet";
+        signInLink.href = "#pilot-form";
+        signInLink.classList.add("unavailable");
+        signInLink.title =
+          "App environment is currently offline. Request a pilot and we will share access.";
+      };
+
+      if (signInLink) {
+        signInLink.href = appLoginUrl;
       }
+
+      const checkAppReachable = async () => {
+        if (isLocalHost || !signInLink) return;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        try {
+          await fetch(appLoginUrl, {
+            method: "GET",
+            mode: "no-cors",
+            cache: "no-store",
+            signal: controller.signal,
+          });
+        } catch {
+          setSignInUnavailable();
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      checkAppReachable();
       const submitted = url.searchParams.get("submitted") === "1";
 
       if (next) {
