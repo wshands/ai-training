@@ -18,6 +18,7 @@ This repo contains a full, opinionated starting point for a SaaS AI training pla
 - `docs/job-queueing.md` — queue semantics, leases, retries
 - `docs/audit-log.md` — audit log + export (job events + admin actions)
 - `docs/threat-model.md` — MVP threat model and security boundaries
+- `docs/third-party-services.md` — why/how external services are used (Cloudflare, Formspree, Clerk, Stripe, etc.)
 
 ## CI setup checklist
 
