@@ -99,6 +99,7 @@ This architecture gives customers the benefits of a SaaS control‑plane without
 
 See also:
 - `docs/architecture-overview.md`
+- `docs/architecture-patterns.md`
 - `docs/data-plane-auth.md`
 - `docs/job-queueing.md`
 - `docs/billing.md`
