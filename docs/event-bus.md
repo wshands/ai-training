@@ -48,6 +48,14 @@ Notes:
 - The control-plane sends `MessageGroupId = job_id` and
   `MessageDeduplicationId = event_id` to preserve per-job ordering.
 
+Why `MessageGroupId` is needed:
+- SQS FIFO can return messages from many groups in one poll; it does not imply
+  a single global order across all jobs.
+- Ordering and in-flight exclusivity are guaranteed per `MessageGroupId`.
+- Using `MessageGroupId = job_id` gives strict ordering for each job while
+  still allowing parallel processing across different jobs.
+- For FIFO queues, `MessageGroupId` is required on `SendMessage`.
+
 ## Kafka/MSK (optional)
 
 To use Kafka/MSK instead of SQS, set:

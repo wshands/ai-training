@@ -43,6 +43,8 @@ All events MUST conform to this envelope:
 - SQS FIFO MUST use `MessageGroupId = job_id` to preserve **per-job ordering**.
 - SQS FIFO MUST use `MessageDeduplicationId = event_id` for idempotency.
 - Consumers MUST NOT assume global ordering across jobs.
+- Even when consumers receive messages from multiple groups, ordering and
+  single in-flight semantics apply within each `MessageGroupId` only.
 
 #### Compatibility rules
 - Consumers MUST ignore unknown `payload` fields.

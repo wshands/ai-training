@@ -54,6 +54,16 @@ Useful script commands:
 ./scripts/run-ai-training-local.sh down --bus sqs --volumes
 ```
 
+macOS DNS reset helper:
+```bash
+./scripts/reset-macos-dns.sh
+```
+
+Optional alias (add to `~/.zshrc`):
+```bash
+alias dns-reset='/Volumes/CodeDevelopment/ai-training/scripts/reset-macos-dns.sh'
+```
+
 To bring down the local services:
 ```bash
 docker compose -f docker-compose-kafka.yml down -v
