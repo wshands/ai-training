@@ -362,6 +362,10 @@ h1 span {
   align-items: start;
 }
 
+.ops > * {
+  min-width: 0;
+}
+
 .ops h3,
 .market h3 {
   margin: 0.28rem 0 0;
@@ -381,12 +385,20 @@ h1 span {
   font-size: 0.93rem;
 }
 
+.ops h3,
+.ops-lede,
+.ops-list li {
+  overflow-wrap: anywhere;
+}
+
 .install-card {
   border: 1px solid var(--line);
   border-radius: 1.2rem;
   padding: 1rem;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: var(--shadow);
+  max-width: 100%;
+  min-width: 0;
 }
 
 .install-card pre {
@@ -398,6 +410,11 @@ h1 span {
   overflow-x: auto;
   font-size: 0.8rem;
   line-height: 1.4;
+  max-width: 100%;
+}
+
+.install-card code {
+  overflow-wrap: anywhere;
 }
 
 .install-card p {
@@ -493,5 +510,25 @@ h1 span {
 
   .grid-4 {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .shell {
+    width: min(1100px, 94vw);
+  }
+
+  .ops-list {
+    padding-left: 1rem;
+  }
+
+  .install-card {
+    padding: 0.85rem;
+  }
+
+  .install-card pre {
+    padding: 0.68rem;
+    font-size: 0.74rem;
+    white-space: pre-wrap;
   }
 }
