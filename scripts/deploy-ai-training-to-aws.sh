@@ -42,18 +42,14 @@ secret_in_state() {
 if secret_in_state; then
   echo "Secret already in Terraform state; skipping import."
 else
-  if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
-    echo "Importing existing secret into Terraform state..."
-    if ! terraform -chdir="$CP_TF_DIR" import "$SECRET_RESOURCE" "$SECRET_NAME" 2>&1 | tee "$IMPORT_OUTPUT" >/dev/null; then
-      if secret_in_state || rg -q "Resource already managed by Terraform" "$IMPORT_OUTPUT"; then
-        echo "Secret already managed; continuing."
-      else
-        echo "Failed to import secret into Terraform state." >&2
-        exit 1
-      fi
+  echo "Attempting to import secret into Terraform state (if it already exists)..."
+  if ! terraform -chdir="$CP_TF_DIR" import "$SECRET_RESOURCE" "$SECRET_NAME" 2>&1 | tee "$IMPORT_OUTPUT" >/dev/null; then
+    if secret_in_state || rg -E -q "Resource already managed by Terraform|Cannot import non-existent remote object|ResourceNotFoundException|resource does not exist" "$IMPORT_OUTPUT"; then
+      echo "Secret import not required; continuing."
+    else
+      echo "Failed to import secret into Terraform state." >&2
+      exit 1
     fi
-  else
-    echo "Secret not found in AWS; skipping import."
   fi
 fi
 
