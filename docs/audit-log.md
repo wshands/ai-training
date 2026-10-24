@@ -7,7 +7,7 @@ AITrainOps maintains two audit streams per tenant:
 2) **Admin actions** (`admin_audit_events`)
    - Token lifecycle changes and retention policy updates.
 
-This provides a complete compliance trail: **what ran** and **who performed admin actions**.
+Together these record **what ran** and **who performed admin actions**. Note: `job_events` rows are subject to the per-tenant retention policy and are deleted after the retention window, so this is not a tamper-evident or permanent log.
 
 ## Admin actions captured
 
@@ -62,6 +62,6 @@ so you can sort them together.
 ## Run summary export (job detail)
 
 The job detail UI also provides a **Run summary** drawer with export buttons.
-This summary is a lightweight, immutable record of a single run (job metadata,
+This summary is a lightweight point-in-time snapshot of a single run (job metadata,
 dataset/artifact URIs, timestamps, and a metrics snapshot). It is intended for
-compliance and reproducibility without storing full artifacts in the control‑plane.
+review and reproducibility without storing full artifacts in the control‑plane.

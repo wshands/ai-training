@@ -12,7 +12,7 @@ if [[ ! -d "$TF_DIR" ]]; then
   exit 1
 fi
 
-export AWS_PROFILE="${AWS_PROFILE:-AdministratorAccess-230407893272}"
+export AWS_PROFILE="${AWS_PROFILE:?Set AWS_PROFILE to your AWS SSO profile, e.g. AdministratorAccess-<account-id>}"
 # WS_SDK_LOAD_CONFIG=1 tells AWS SDKs (and tools like Terraform via the SDK) to load the shared 
 # config file ~/.aws/config in addition to ~/.aws/credentials.
 # That’s important for SSO profiles, because SSO settings live in ~/.aws/config (not in ~/.aws/credentials).

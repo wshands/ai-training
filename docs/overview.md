@@ -4,7 +4,7 @@
 AITrainOps is a control‑plane + data‑plane platform for running GPU training jobs in a customer’s cloud while keeping centralized orchestration, observability, and auditability in a vendor‑hosted control‑plane. Customers keep data and compute inside their own AWS account/VPC, while the vendor provides scheduling, job lifecycle management, live logs/metrics, and a web UI.
 
 ## Core goals
-- **Run training jobs in customer VPCs** without data egress.
+- **Run training jobs in customer VPCs**; training data stays in the customer cluster (job metadata, logs, and metrics are sent to the control plane).
 - **Provide centralized control and visibility** across clusters and teams.
 - **Keep operational overhead low** with a lightweight data‑plane agent.
 - **Support multi‑tenant SaaS** with secure isolation.
@@ -76,7 +76,7 @@ Notes:
 This architecture gives customers the benefits of a SaaS control‑plane without giving up control of their data or compute. It also keeps onboarding simple: install a Helm chart, mint a token, submit jobs.
 
 ## Ideal use cases
-- Private ML training in regulated industries (biotech, finance, healthcare).
+- Teams sharing GPU clusters across several ML groups (AI startups, SaaS, fintech, robotics).
 - Teams with Kubernetes + GPUs but no dedicated MLOps team.
 - Orgs that need auditability, job history, and reliable orchestration.
 
