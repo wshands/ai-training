@@ -9,7 +9,7 @@ SECRET_NAME="${POSTGRES_DSN_SECRET_NAME:-ai-platform/postgres-dsn}"
 IMPORT_OUTPUT="/tmp/terraform-import-$$.log"
 
 export AWS_SDK_LOAD_CONFIG=1
-export AWS_PROFILE="${AWS_PROFILE:-AdministratorAccess-230407893272}"
+export AWS_PROFILE="${AWS_PROFILE:?Set AWS_PROFILE to your AWS SSO profile, e.g. AdministratorAccess-<account-id>}"
 
 if ! command -v terraform >/dev/null 2>&1; then
   echo "terraform is required. Install it first." >&2

@@ -1,6 +1,8 @@
 # AI Platform - Control Plane + Data Plane
 
-This repo contains a full, opinionated starting point for a SaaS AI training platform:
+Open-source control plane for running and governing ML training jobs across teams on shared GPU clusters. Training runs in your own Kubernetes cluster; the control plane tracks state, logs, metrics, and run history.
+
+This repo contains:
 
 - control-plane/api/ – FastAPI API to submit training jobs
 - control-plane/event-processor/ – Kafka consumer that persists job events and state
@@ -73,11 +75,11 @@ To build the control plane images:
 ```bash
 # 1) Set vars
 export REGION=us-west-2
-export ACCOUNT_ID=230407893272
+export ACCOUNT_ID=<your-aws-account-id>
 export ECR_BASE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
 # 2) Login to ECR
-aws ecr get-login-password --region "$REGION" --profile AdministratorAccess-230407893272 | \
+aws ecr get-login-password --region "$REGION" --profile "$AWS_PROFILE" | \
   docker login --username AWS --password-stdin "$ECR_BASE"
 
 # 3) Create repos if they don't exist
@@ -162,13 +164,13 @@ To build a multi-platform image for Mac or ECR:
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t 230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/job-launcher:latest \
+  -t ${ACCOUNT_ID}.dkr.ecr.us-west-2.amazonaws.com/ai-training/job-launcher:latest \
   -f data-plane/launcher/Dockerfile \
   --push .
 
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t 230407893272.dkr.ecr.us-west-2.amazonaws.com/ai-training/training-job:latest \
+  -t ${ACCOUNT_ID}.dkr.ecr.us-west-2.amazonaws.com/ai-training/training-job:latest \
   -f data-plane/training-job/Dockerfile \
   --push .
 ```
@@ -278,13 +280,13 @@ To test:
 
 To login using SSO:
 ```bash
-aws sso login --profile AdministratorAccess-230407893272
+aws sso login --profile "$AWS_PROFILE"
 ```
 
 To login to ECR so you can push images to ECR:
 ```bash
-aws ecr get-login-password --region us-west-2 --profile AdministratorAccess-230407893272 \
-  | docker login --username AWS --password-stdin 230407893272.dkr.ecr.us-west-2.amazonaws.com
+aws ecr get-login-password --region us-west-2 --profile "$AWS_PROFILE" \
+  | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.us-west-2.amazonaws.com
 ```
 
 
@@ -332,6 +334,6 @@ aws s3api delete-objects --bucket "$BUCKET" --delete file:///tmp/delete-markers.
 To deploy the UI to AWS CloudFront using Terraform outputs:
 ```bash
 cd control-plane/ui
-aws sso login --profile AdministratorAccess-230407893272
-AWS_PROFILE=AdministratorAccess-230407893272 npm run deploy:terraform
+aws sso login --profile "$AWS_PROFILE"
+npm run deploy:terraform
 ```

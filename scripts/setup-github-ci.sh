@@ -6,7 +6,7 @@ IAM_TF_DIR="${ROOT_DIR}/deploy/terraform/iam-ci"
 CP_TF_DIR="${ROOT_DIR}/deploy/terraform/control-plane"
 
 export AWS_SDK_LOAD_CONFIG=1
-export AWS_PROFILE="${AWS_PROFILE:-AdministratorAccess-230407893272}"
+export AWS_PROFILE="${AWS_PROFILE:?Set AWS_PROFILE to your AWS SSO profile, e.g. AdministratorAccess-<account-id>}"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI (gh) is required. Install it first." >&2
